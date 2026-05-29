@@ -12,3 +12,6 @@ add_library(cbn_core ${SOURCES})
 
 add_executable(verify_cbn examples/verify_cbn.cpp)
 target_link_libraries(verify_cbn cbn_core)
+
+add_executable(run_pipeline examples/run_pipeline.cpp)
+target_link_libraries(run_pipeline cbn_core)
