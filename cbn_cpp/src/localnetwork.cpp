@@ -36,6 +36,10 @@ int LocalNetwork::evaluate_boolean_function(const std::vector<std::vector<int>>&
             int val = 0;
             if (state.count(var_index)) val = state.at(var_index);
             else if (external_values.count(var_index)) val = external_values.at(var_index);
+            else {
+                // Safety: literal not found in state or external
+                continue;
+            }
 
             if (is_negated) val = 1 - val;
             if (val == 1) {

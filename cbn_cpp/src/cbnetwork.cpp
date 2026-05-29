@@ -1,4 +1,7 @@
 #include "cbnetwork/cbnetwork.hpp"
+#include "cbnetwork/localtemplates.hpp"
+#include "cbnetwork/globaltopology.hpp"
+#include "cbnetwork/internalvariable.hpp"
 #include <iostream>
 #include <algorithm>
 #include <set>
@@ -182,6 +185,7 @@ void CBN::find_compatible_pairs() {
 
 void CBN::mount_stable_attractor_fields() {
     std::vector<std::set<int>> fields;
+    fields.reserve(l_directed_edges.size() * 2);
     for (auto& edge : l_directed_edges) {
         if (!edge) continue;
         for (int val : {0, 1}) {
@@ -256,6 +260,84 @@ void CBN::show_stable_attractor_fields() const {
         }
         std::cout << "]" << std::endl;
     }
+}
+
+std::shared_ptr<CBN> CBN::cbn_generator(
+    int v_topology,
+    int n_local_networks,
+    int n_vars_network,
+    int n_input_variables,
+    int n_output_variables,
+    int n_max_of_clauses,
+    int n_max_of_literals) {
+
+    auto o_topo = GlobalTopology::generate_sample_topology(v_topology, n_local_networks);
+    LocalNetworkTemplate o_template(n_vars_network, n_input_variables, n_output_variables, n_max_of_clauses, n_max_of_literals, v_topology);
+
+    std::vector<std::shared_ptr<LocalNetwork>> networks;
+    int v_cont_var = 1;
+    for (int i = 1; i <= n_local_networks; ++i) {
+        std::vector<int> internal_vars;
+        for (int j = 0; j < n_vars_network; ++j) internal_vars.push_back(v_cont_var++);
+        networks.push_back(std::make_shared<LocalNetwork>(i, internal_vars));
+    }
+
+    std::vector<std::shared_ptr<DirectedEdge>> edges;
+    int i_last_variable = networks.back()->internal_variables.back() + 1;
+    int i_directed_edge = 1;
+
+    for (auto& rel : o_topo->l_edges) {
+        int out_net_idx = rel.first;
+        int in_net_idx = rel.second;
+
+        std::vector<int> out_vars;
+        auto& out_net = networks.at(out_net_idx - 1);
+        for (int pos : o_template.l_output_var_indexes) {
+            out_vars.push_back(out_net->internal_variables.at(pos - 1));
+        }
+
+        // Simplification: use OR for generated edges
+        std::string coup_func = " OR ";
+        auto edge = std::make_shared<DirectedEdge>(i_directed_edge++, i_last_variable++, in_net_idx, out_net_idx, out_vars, coup_func);
+        edges.push_back(edge);
+    }
+
+    for (auto& net : networks) {
+        std::vector<std::shared_ptr<DirectedEdge>> inputs;
+        for (auto& edge : edges) {
+            if (edge->input_local_network == net->index) inputs.push_back(edge);
+        }
+        net->process_input_signals(inputs);
+
+        // Generate dynamics
+        for (int i_local_var : net->internal_variables) {
+            int i_template_var = i_local_var - ((net->index - 1) * n_vars_network) + n_vars_network;
+            auto pre_cnf = o_template.d_variable_cnf_function.at(i_template_var);
+
+            std::vector<std::vector<int>> clauses;
+            for (auto& pre_clause : pre_cnf) {
+                std::vector<int> clause;
+                bool skip = false;
+                for (int t_val : pre_clause) {
+                    bool pos = t_val > 0;
+                    int abs_t = std::abs(t_val);
+                    int local_val = abs_t + ((net->index - 3) * n_vars_network) + n_vars_network;
+
+                    if (std::find(net->internal_variables.begin(), net->internal_variables.end(), local_val) == net->internal_variables.end()) {
+                        if (net->external_variables.empty()) { skip = true; break; }
+                        local_val = net->external_variables.at(0); // Simplified mapping
+                    }
+                    clause.push_back(pos ? local_val : -local_val);
+                }
+                if (!skip && !clause.empty()) clauses.push_back(clause);
+            }
+            net->descriptive_function_variables.push_back(std::make_shared<InternalVariable>(i_local_var, clauses));
+        }
+    }
+
+    auto o_cbn = std::make_shared<CBN>(networks, edges);
+    o_cbn->o_global_topology = o_topo;
+    return o_cbn;
 }
 
 } // namespace cbnetwork

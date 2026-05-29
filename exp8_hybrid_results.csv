@@ -1,5 +1,0 @@
-topology,n_networks,n_vars,step1_time,step2_time,step3_time,total_time,attractors,fields
-complete,3,6,0.002121627,4.829e-06,6.66e-07,0.002130561,12,0
-complete,4,6,0.005069048,1.0989e-05,4.83e-07,0.005084337,32,0
-cycle,3,6,0.000926143,1.773e-06,3.99e-07,0.000930888,6,0
-cycle,4,6,0.001262792,2.129e-06,3.14e-07,0.001268114,8,0
