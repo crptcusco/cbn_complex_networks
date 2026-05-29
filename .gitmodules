@@ -1,0 +1,3 @@
+[submodule "cbn_core"]
+	path = cbn_core
+	url = https://github.com/crptcusco/cbn_core.git
