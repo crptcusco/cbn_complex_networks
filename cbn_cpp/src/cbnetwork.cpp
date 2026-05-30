@@ -27,6 +27,129 @@ void CBN::process_output_signals() {
     }
 }
 
+void CBN::order_edges_by_grade() {
+    std::map<int, int> network_degrees;
+    for (auto& net : l_local_networks) network_degrees[net->index] = 0;
+    for (auto& edge : l_directed_edges) {
+        network_degrees[edge->input_local_network]++;
+        network_degrees[edge->output_local_network]++;
+    }
+
+    auto calculate_edge_grade = [&](const std::shared_ptr<DirectedEdge>& edge) {
+        return network_degrees[edge->input_local_network] + network_degrees[edge->output_local_network];
+    };
+
+    std::sort(l_directed_edges.begin(), l_directed_edges.end(), [&](const auto& a, const auto& b) {
+        return calculate_edge_grade(a) > calculate_edge_grade(b);
+    });
+
+    auto is_adjacent = [](const std::shared_ptr<DirectedEdge>& e1, const std::shared_ptr<DirectedEdge>& e2) {
+        return e1->input_local_network == e2->input_local_network ||
+               e1->input_local_network == e2->output_local_network ||
+               e1->output_local_network == e2->input_local_network ||
+               e1->output_local_network == e2->output_local_network;
+    };
+
+    if (!l_directed_edges.empty()) {
+        std::vector<std::shared_ptr<DirectedEdge>> ordered;
+        ordered.push_back(l_directed_edges[0]);
+        l_directed_edges.erase(l_directed_edges.begin());
+
+        while (!l_directed_edges.empty()) {
+            bool found = false;
+            for (size_t i = 0; i < l_directed_edges.size(); ++i) {
+                if (is_adjacent(ordered.back(), l_directed_edges[i])) {
+                    ordered.push_back(l_directed_edges[i]);
+                    l_directed_edges.erase(l_directed_edges.begin() + i);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                ordered.push_back(l_directed_edges[0]);
+                l_directed_edges.erase(l_directed_edges.begin());
+            }
+        }
+        l_directed_edges = ordered;
+    }
+}
+
+void CBN::disorder_edges() {
+    if (l_directed_edges.size() < 2) return;
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(l_directed_edges.begin(), l_directed_edges.end(), g);
+
+    auto have_common_vertex = [](const std::shared_ptr<DirectedEdge>& e1, const std::shared_ptr<DirectedEdge>& e2) {
+        return e1->input_local_network == e2->input_local_network ||
+               e1->input_local_network == e2->output_local_network ||
+               e1->output_local_network == e2->input_local_network ||
+               e1->output_local_network == e2->output_local_network;
+    };
+
+    if (have_common_vertex(l_directed_edges[0], l_directed_edges[1])) {
+        for (size_t i = 2; i < l_directed_edges.size(); ++i) {
+            if (!have_common_vertex(l_directed_edges[0], l_directed_edges[i])) {
+                std::swap(l_directed_edges[1], l_directed_edges[i]);
+                break;
+            }
+        }
+    }
+}
+
+void CBN::generate_global_scenes() {
+    std::vector<int> l_edges_indexes;
+    for (auto& edge : l_directed_edges) l_edges_indexes.push_back(edge->index_variable);
+
+    int n = l_edges_indexes.size();
+    for (int i = 0; i < (1 << n); ++i) {
+        std::vector<int> combination;
+        for (int bit = 0; bit < n; ++bit) {
+            combination.push_back((i >> (n - 1 - bit)) & 1);
+        }
+        l_global_scenes.push_back(std::make_shared<GlobalScene>(l_edges_indexes, combination));
+    }
+}
+
+void CBN::count_fields_by_global_scenes() {
+    d_global_scenes_count.clear();
+
+    // Pre-cache g_index to LocalAttractor for efficiency
+    std::map<int, std::shared_ptr<LocalAttractor>> g_index_to_attr;
+    for (auto& net : l_local_networks) {
+        for (auto& scene : net->local_scenes) {
+            for (auto& attr : scene->l_attractors) {
+                g_index_to_attr[attr->g_index] = attr;
+            }
+        }
+    }
+
+    for (auto const& [key, field] : d_attractor_fields) {
+        std::map<int, int> d_variable_value;
+        for (int i_attractor : field) {
+            auto it = g_index_to_attr.find(i_attractor);
+            if (it != g_index_to_attr.end()) {
+                auto& attr = it->second;
+                for (size_t i = 0; i < attr->relation_index.size(); ++i) {
+                    if (i < attr->local_scene.length()) {
+                        d_variable_value[attr->relation_index[i]] = attr->local_scene[i] - '0';
+                    }
+                }
+            }
+        }
+
+        if (d_variable_value.empty()) continue;
+
+        std::string combination_key = "";
+        std::vector<int> sorted_keys;
+        for (auto const& [v_idx, v_val] : d_variable_value) sorted_keys.push_back(v_idx);
+        std::sort(sorted_keys.begin(), sorted_keys.end());
+        for (int k : sorted_keys) combination_key += std::to_string(d_variable_value[k]);
+
+        d_global_scenes_count[combination_key]++;
+    }
+}
+
 std::vector<std::string> CBN::_generate_local_scenes(std::shared_ptr<LocalNetwork> o_local_network) {
     if (!o_local_network) return {};
     int external_vars_count = o_local_network->external_variables.size();

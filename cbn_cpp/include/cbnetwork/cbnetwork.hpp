@@ -8,6 +8,7 @@
 #include "cbnetwork/localnetwork.hpp"
 #include "cbnetwork/directededge.hpp"
 #include "cbnetwork/globaltopology.hpp"
+#include "cbnetwork/globalscene.hpp"
 
 namespace cbnetwork {
 
@@ -17,6 +18,8 @@ public:
     std::vector<std::shared_ptr<DirectedEdge>> l_directed_edges;
     std::map<int, std::tuple<int, int, int>> d_local_attractors;
     std::map<int, std::vector<int>> d_attractor_fields;
+    std::vector<std::shared_ptr<GlobalScene>> l_global_scenes;
+    std::map<std::string, int> d_global_scenes_count;
     std::shared_ptr<GlobalTopology> o_global_topology;
 
     CBN(const std::vector<std::shared_ptr<LocalNetwork>>& networks,
@@ -26,6 +29,10 @@ public:
     }
 
     void process_output_signals();
+    void order_edges_by_grade();
+    void disorder_edges();
+    void generate_global_scenes();
+    void count_fields_by_global_scenes();
     void find_local_attractors_sequential();
     void find_local_attractors_parallel();
     void find_compatible_pairs();
