@@ -27,8 +27,11 @@ public:
 
     void process_output_signals();
     void find_local_attractors_sequential();
+    void find_local_attractors_parallel();
     void find_compatible_pairs();
+    void find_compatible_pairs_parallel();
     void mount_stable_attractor_fields();
+    void mount_stable_attractor_fields_parallel();
 
     void generate_attractor_dictionary();
     void process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network);
@@ -49,9 +52,10 @@ public:
         int n_max_of_clauses = 2,
         int n_max_of_literals = 3);
 
-private:
     void _assign_global_indices_to_attractors();
     std::vector<std::string> _generate_local_scenes(std::shared_ptr<LocalNetwork> o_local_network);
+
+private:
     void order_edges_by_compatibility();
 };
 

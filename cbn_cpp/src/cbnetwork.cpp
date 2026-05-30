@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <set>
+#include <omp.h>
 
 namespace cbnetwork {
 
@@ -61,6 +62,23 @@ void CBN::find_local_attractors_sequential() {
     generate_attractor_dictionary();
 }
 
+void CBN::find_local_attractors_parallel() {
+    #pragma omp parallel for
+    for (int i = 0; i < (int)l_local_networks.size(); ++i) {
+        auto& net = l_local_networks.at(i);
+        if (net) {
+            if (net->local_scenes.empty()) {
+                auto scenes = _generate_local_scenes(net);
+                LocalNetwork::find_local_attractors_brute_force(net, scenes);
+            }
+            process_kind_signal(net);
+        }
+    }
+
+    _assign_global_indices_to_attractors();
+    generate_attractor_dictionary();
+}
+
 void CBN::_assign_global_indices_to_attractors() {
     int i_attractor = 1;
     for (auto& net : l_local_networks) {
@@ -70,6 +88,29 @@ void CBN::_assign_global_indices_to_attractors() {
             for (auto& attractor : scene->l_attractors) {
                 if (attractor) {
                     attractor->g_index = i_attractor++;
+                }
+            }
+        }
+    }
+}
+
+void CBN::find_compatible_pairs_parallel() {
+    #pragma omp parallel for
+    for (int i = 0; i < (int)l_directed_edges.size(); ++i) {
+        auto& edge = l_directed_edges.at(i);
+        if (!edge) continue;
+        for (int val : {0, 1}) {
+            edge->d_comp_pairs_attractors_by_value[val].clear();
+            auto dst_attractors = get_attractors_by_input_signal_value(edge->index_variable, val);
+
+            auto& src_attractors = edge->d_out_value_to_attractor[val];
+            edge->d_comp_pairs_attractors_by_value[val].reserve(src_attractors.size() * dst_attractors.size());
+
+            for (auto& src_attr : src_attractors) {
+                if (!src_attr) continue;
+                for (auto& dst_attr : dst_attractors) {
+                    if (!dst_attr) continue;
+                    edge->d_comp_pairs_attractors_by_value[val].push_back({src_attr->g_index, dst_attr->g_index});
                 }
             }
         }
@@ -115,12 +156,12 @@ void CBN::process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network) {
                         if (it != o_local_network->total_variables.end()) {
                             int pos = std::distance(o_local_network->total_variables.begin(), it);
                             if (pos < state->l_variable_values.size()) {
-                                tt_index += std::to_string(state->l_variable_values[pos]);
+                                tt_index += std::to_string(state->l_variable_values.at(pos));
                             }
                         }
                     }
                     if (!tt_index.empty() && edge->true_table.count(tt_index)) {
-                        signals_in_attractor.insert(edge->true_table.at(tt_index)[0]);
+                        signals_in_attractor.insert(edge->true_table.at(tt_index).at(0));
                     }
                 }
 
@@ -155,7 +196,7 @@ std::vector<std::shared_ptr<LocalAttractor>> CBN::get_attractors_by_input_signal
             if (it != scene->l_index_signals.end()) {
                 int pos = std::distance(scene->l_index_signals.begin(), it);
                 for (const auto& scene_val : scene->l_values) {
-                    if (pos < scene_val.length() && scene_val[pos] == (signal_value + '0')) {
+                    if (pos < scene_val.length() && scene_val.at(pos) == (signal_value + '0')) {
                         for (auto& attr : scene->l_attractors) l_attractors.push_back(attr);
                         break;
                     }
@@ -172,7 +213,11 @@ void CBN::find_compatible_pairs() {
         for (int val : {0, 1}) {
             edge->d_comp_pairs_attractors_by_value[val].clear();
             auto dst_attractors = get_attractors_by_input_signal_value(edge->index_variable, val);
-            for (auto& src_attr : edge->d_out_value_to_attractor[val]) {
+
+            auto& src_attractors = edge->d_out_value_to_attractor[val];
+            edge->d_comp_pairs_attractors_by_value[val].reserve(src_attractors.size() * dst_attractors.size());
+
+            for (auto& src_attr : src_attractors) {
                 if (!src_attr) continue;
                 for (auto& dst_attr : dst_attractors) {
                     if (!dst_attr) continue;
@@ -203,14 +248,14 @@ void CBN::mount_stable_attractor_fields() {
         for (size_t i = 0; i < fields.size(); ++i) {
             for (size_t j = i + 1; j < fields.size(); ++j) {
                 bool share = false;
-                for (int attr : fields[i]) {
-                    if (fields[j].count(attr)) {
+                for (int attr : fields.at(i)) {
+                    if (fields.at(j).count(attr)) {
                         share = true;
                         break;
                     }
                 }
                 if (share) {
-                    fields[i].insert(fields[j].begin(), fields[j].end());
+                    fields.at(i).insert(fields.at(j).begin(), fields.at(j).end());
                     fields.erase(fields.begin() + j);
                     merged = true;
                     break;
@@ -222,8 +267,16 @@ void CBN::mount_stable_attractor_fields() {
 
     d_attractor_fields.clear();
     for (size_t i = 0; i < fields.size(); ++i) {
-        d_attractor_fields[i + 1] = std::vector<int>(fields[i].begin(), fields[i].end());
+        d_attractor_fields[i + 1] = std::vector<int>(fields.at(i).begin(), fields.at(i).end());
     }
+}
+
+void CBN::mount_stable_attractor_fields_parallel() {
+    // Step 3 is harder to parallelize due to the iterative merging.
+    // However, the initial pair collection can be parallelized,
+    // and we can use a more efficient merging algorithm if needed.
+    // For now, let's keep the merging sequential but use the parallel versions of Step 1 and 2.
+    mount_stable_attractor_fields();
 }
 
 void CBN::show_local_attractors() const {
@@ -256,7 +309,7 @@ void CBN::show_stable_attractor_fields() const {
     for (auto const& [key, field] : d_attractor_fields) {
         std::cout << key << ": [";
         for (size_t i = 0; i < field.size(); ++i) {
-            std::cout << field[i] << (i == field.size() - 1 ? "" : ", ");
+            std::cout << field.at(i) << (i == field.size() - 1 ? "" : ", ");
         }
         std::cout << "]" << std::endl;
     }
