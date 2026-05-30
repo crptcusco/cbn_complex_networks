@@ -21,3 +21,6 @@ target_link_libraries(run_pipeline cbn_core OpenMP::OpenMP_CXX)
 
 add_executable(experiment_runner examples/experiment_runner.cpp)
 target_link_libraries(experiment_runner cbn_core OpenMP::OpenMP_CXX)
+
+add_executable(scientific_benchmarking examples/scientific_benchmarking.cpp)
+target_link_libraries(scientific_benchmarking cbn_core OpenMP::OpenMP_CXX)

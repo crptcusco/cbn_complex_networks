@@ -52,9 +52,10 @@ public:
         int n_max_of_clauses = 2,
         int n_max_of_literals = 3);
 
-private:
     void _assign_global_indices_to_attractors();
     std::vector<std::string> _generate_local_scenes(std::shared_ptr<LocalNetwork> o_local_network);
+
+private:
     void order_edges_by_compatibility();
 };
 
