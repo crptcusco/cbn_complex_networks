@@ -67,7 +67,7 @@ std::shared_ptr<LocalNetwork> LocalNetwork::find_local_attractors_brute_force(
         std::map<int, int> external_values;
         for (size_t i = 0; i < scene_str.length(); ++i) {
             if (i < local_network->external_variables.size()) {
-                external_values[local_network->external_variables[i]] = scene_str[i] - '0';
+                external_values[local_network->external_variables.at(i)] = scene_str.at(i) - '0';
             }
         }
 
@@ -80,7 +80,7 @@ std::shared_ptr<LocalNetwork> LocalNetwork::find_local_attractors_brute_force(
             for (int bit = 0; bit < num_internal_vars; ++bit) {
                 int val = (i >> bit) & 1;
                 current_state_vals.push_back(val);
-                current_state_dict[local_network->internal_variables[bit]] = val;
+                current_state_dict[local_network->internal_variables.at(bit)] = val;
             }
 
             std::vector<int> next_state_vals;
@@ -110,6 +110,7 @@ std::shared_ptr<LocalNetwork> LocalNetwork::find_local_attractors_brute_force(
                 if (path_set.count(curr)) {
                     auto it = std::find(path.begin(), path.end(), curr);
                     std::vector<std::shared_ptr<LocalState>> l_states;
+                    l_states.reserve(std::distance(it, path.end()));
                     for (; it != path.end(); ++it) {
                         l_states.push_back(std::make_shared<LocalState>(*it));
                     }

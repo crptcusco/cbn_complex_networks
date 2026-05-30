@@ -115,12 +115,12 @@ void CBN::process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network) {
                         if (it != o_local_network->total_variables.end()) {
                             int pos = std::distance(o_local_network->total_variables.begin(), it);
                             if (pos < state->l_variable_values.size()) {
-                                tt_index += std::to_string(state->l_variable_values[pos]);
+                                tt_index += std::to_string(state->l_variable_values.at(pos));
                             }
                         }
                     }
                     if (!tt_index.empty() && edge->true_table.count(tt_index)) {
-                        signals_in_attractor.insert(edge->true_table.at(tt_index)[0]);
+                        signals_in_attractor.insert(edge->true_table.at(tt_index).at(0));
                     }
                 }
 
@@ -155,7 +155,7 @@ std::vector<std::shared_ptr<LocalAttractor>> CBN::get_attractors_by_input_signal
             if (it != scene->l_index_signals.end()) {
                 int pos = std::distance(scene->l_index_signals.begin(), it);
                 for (const auto& scene_val : scene->l_values) {
-                    if (pos < scene_val.length() && scene_val[pos] == (signal_value + '0')) {
+                    if (pos < scene_val.length() && scene_val.at(pos) == (signal_value + '0')) {
                         for (auto& attr : scene->l_attractors) l_attractors.push_back(attr);
                         break;
                     }
@@ -172,7 +172,11 @@ void CBN::find_compatible_pairs() {
         for (int val : {0, 1}) {
             edge->d_comp_pairs_attractors_by_value[val].clear();
             auto dst_attractors = get_attractors_by_input_signal_value(edge->index_variable, val);
-            for (auto& src_attr : edge->d_out_value_to_attractor[val]) {
+
+            auto& src_attractors = edge->d_out_value_to_attractor[val];
+            edge->d_comp_pairs_attractors_by_value[val].reserve(src_attractors.size() * dst_attractors.size());
+
+            for (auto& src_attr : src_attractors) {
                 if (!src_attr) continue;
                 for (auto& dst_attr : dst_attractors) {
                     if (!dst_attr) continue;
@@ -256,7 +260,7 @@ void CBN::show_stable_attractor_fields() const {
     for (auto const& [key, field] : d_attractor_fields) {
         std::cout << key << ": [";
         for (size_t i = 0; i < field.size(); ++i) {
-            std::cout << field[i] << (i == field.size() - 1 ? "" : ", ");
+            std::cout << field.at(i) << (i == field.size() - 1 ? "" : ", ");
         }
         std::cout << "]" << std::endl;
     }
