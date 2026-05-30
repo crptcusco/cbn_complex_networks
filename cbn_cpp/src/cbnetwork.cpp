@@ -3,9 +3,11 @@
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/internalvariable.hpp"
 #include <iostream>
+#include <fstream>
 #include <algorithm>
 #include <set>
 #include <omp.h>
+#include "nlohmann/json.hpp"
 
 namespace cbnetwork {
 
@@ -228,14 +230,17 @@ void CBN::find_compatible_pairs() {
     }
 }
 
+// OPTIMIZED MEMORY PHASE 3: std::vector<int> instead of std::set<int>
 void CBN::mount_stable_attractor_fields() {
-    std::vector<std::set<int>> fields;
+    std::vector<std::vector<int>> fields;
     fields.reserve(l_directed_edges.size() * 2);
     for (auto& edge : l_directed_edges) {
         if (!edge) continue;
         for (int val : {0, 1}) {
             for (auto& pair : edge->d_comp_pairs_attractors_by_value[val]) {
-                fields.push_back({pair.first, pair.second});
+                std::vector<int> field = {pair.first, pair.second};
+                std::sort(field.begin(), field.end());
+                fields.push_back(field);
             }
         }
     }
@@ -246,17 +251,27 @@ void CBN::mount_stable_attractor_fields() {
     while (merged) {
         merged = false;
         for (size_t i = 0; i < fields.size(); ++i) {
+            if (fields.at(i).empty()) continue; // Sentinel
             for (size_t j = i + 1; j < fields.size(); ++j) {
+                if (fields.at(j).empty()) continue; // Sentinel
+
+                // Efficient sharing check using sorted vectors
                 bool share = false;
-                for (int attr : fields.at(i)) {
-                    if (fields.at(j).count(attr)) {
-                        share = true;
-                        break;
-                    }
+                auto& f1 = fields.at(i);
+                auto& f2 = fields.at(j);
+
+                size_t p1 = 0, p2 = 0;
+                while (p1 < f1.size() && p2 < f2.size()) {
+                    if (f1[p1] == f2[p2]) { share = true; break; }
+                    if (f1[p1] < f2[p2]) p1++;
+                    else p2++;
                 }
+
                 if (share) {
-                    fields.at(i).insert(fields.at(j).begin(), fields.at(j).end());
-                    fields.erase(fields.begin() + j);
+                    f1.insert(f1.end(), f2.begin(), f2.end());
+                    std::sort(f1.begin(), f1.end());
+                    f1.erase(std::unique(f1.begin(), f1.end()), f1.end());
+                    f2.clear(); // Mark as merged (sentinel)
                     merged = true;
                     break;
                 }
@@ -266,16 +281,15 @@ void CBN::mount_stable_attractor_fields() {
     }
 
     d_attractor_fields.clear();
-    for (size_t i = 0; i < fields.size(); ++i) {
-        d_attractor_fields[i + 1] = std::vector<int>(fields.at(i).begin(), fields.at(i).end());
+    int count = 1;
+    for (auto& f : fields) {
+        if (!f.empty()) {
+            d_attractor_fields[count++] = f;
+        }
     }
 }
 
 void CBN::mount_stable_attractor_fields_parallel() {
-    // Step 3 is harder to parallelize due to the iterative merging.
-    // However, the initial pair collection can be parallelized,
-    // and we can use a more efficient merging algorithm if needed.
-    // For now, let's keep the merging sequential but use the parallel versions of Step 1 and 2.
     mount_stable_attractor_fields();
 }
 
@@ -349,7 +363,6 @@ std::shared_ptr<CBN> CBN::cbn_generator(
             out_vars.push_back(out_net->internal_variables.at(pos - 1));
         }
 
-        // Simplification: use OR for generated edges
         std::string coup_func = " OR ";
         auto edge = std::make_shared<DirectedEdge>(i_directed_edge++, i_last_variable++, in_net_idx, out_net_idx, out_vars, coup_func);
         edges.push_back(edge);
@@ -362,7 +375,6 @@ std::shared_ptr<CBN> CBN::cbn_generator(
         }
         net->process_input_signals(inputs);
 
-        // Generate dynamics
         for (int i_local_var : net->internal_variables) {
             int i_template_var = i_local_var - ((net->index - 1) * n_vars_network) + n_vars_network;
             auto pre_cnf = o_template.d_variable_cnf_function.at(i_template_var);
@@ -378,7 +390,7 @@ std::shared_ptr<CBN> CBN::cbn_generator(
 
                     if (std::find(net->internal_variables.begin(), net->internal_variables.end(), local_val) == net->internal_variables.end()) {
                         if (net->external_variables.empty()) { skip = true; break; }
-                        local_val = net->external_variables.at(0); // Simplified mapping
+                        local_val = net->external_variables.at(0);
                     }
                     clause.push_back(pos ? local_val : -local_val);
                 }
@@ -391,6 +403,20 @@ std::shared_ptr<CBN> CBN::cbn_generator(
     auto o_cbn = std::make_shared<CBN>(networks, edges);
     o_cbn->o_global_topology = o_topo;
     return o_cbn;
+}
+
+void CBN::save_attractor_fields_to_json(const std::string& filepath) {
+    using json = nlohmann::json;
+    json j_fields = json::array();
+    for (auto const& [id, field] : d_attractor_fields) {
+        json j_field;
+        j_field["field_id"] = id;
+        j_field["attractor_indices"] = field;
+        j_fields.push_back(j_field);
+    }
+
+    std::ofstream out(filepath);
+    out << j_fields.dump(4) << std::endl;
 }
 
 } // namespace cbnetwork

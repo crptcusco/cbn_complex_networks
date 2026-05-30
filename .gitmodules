@@ -1,3 +1,6 @@
 [submodule "cbn_core"]
 	path = cbn_core
 	url = https://github.com/crptcusco/cbn_core.git
+[submodule "ufabc_phd_cbn"]
+	path = ufabc_phd_cbn
+	url = ../ufabc_phd_cbn.git
