@@ -29,7 +29,6 @@ int main() {
     // Signal variable index is 3
     auto edge12 = std::make_shared<DirectedEdge>(1, 3, 2, 1, std::vector<int>{1}, " 1 ");
 
-    net1->process_input_signals({});
     net1->output_signals.push_back(edge12);
     net2->process_input_signals({edge12});
 

@@ -3,9 +3,11 @@
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/internalvariable.hpp"
 #include <iostream>
+#include <fstream>
 #include <algorithm>
 #include <set>
 #include <omp.h>
+#include "nlohmann/json.hpp"
 
 namespace cbnetwork {
 
@@ -24,129 +26,6 @@ void CBN::process_output_signals() {
         if (local_network_dict.count(source_network_index)) {
             local_network_dict[source_network_index]->output_signals.push_back(edge);
         }
-    }
-}
-
-void CBN::order_edges_by_grade() {
-    std::map<int, int> network_degrees;
-    for (auto& net : l_local_networks) network_degrees[net->index] = 0;
-    for (auto& edge : l_directed_edges) {
-        network_degrees[edge->input_local_network]++;
-        network_degrees[edge->output_local_network]++;
-    }
-
-    auto calculate_edge_grade = [&](const std::shared_ptr<DirectedEdge>& edge) {
-        return network_degrees[edge->input_local_network] + network_degrees[edge->output_local_network];
-    };
-
-    std::sort(l_directed_edges.begin(), l_directed_edges.end(), [&](const auto& a, const auto& b) {
-        return calculate_edge_grade(a) > calculate_edge_grade(b);
-    });
-
-    auto is_adjacent = [](const std::shared_ptr<DirectedEdge>& e1, const std::shared_ptr<DirectedEdge>& e2) {
-        return e1->input_local_network == e2->input_local_network ||
-               e1->input_local_network == e2->output_local_network ||
-               e1->output_local_network == e2->input_local_network ||
-               e1->output_local_network == e2->output_local_network;
-    };
-
-    if (!l_directed_edges.empty()) {
-        std::vector<std::shared_ptr<DirectedEdge>> ordered;
-        ordered.push_back(l_directed_edges[0]);
-        l_directed_edges.erase(l_directed_edges.begin());
-
-        while (!l_directed_edges.empty()) {
-            bool found = false;
-            for (size_t i = 0; i < l_directed_edges.size(); ++i) {
-                if (is_adjacent(ordered.back(), l_directed_edges[i])) {
-                    ordered.push_back(l_directed_edges[i]);
-                    l_directed_edges.erase(l_directed_edges.begin() + i);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                ordered.push_back(l_directed_edges[0]);
-                l_directed_edges.erase(l_directed_edges.begin());
-            }
-        }
-        l_directed_edges = ordered;
-    }
-}
-
-void CBN::disorder_edges() {
-    if (l_directed_edges.size() < 2) return;
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(l_directed_edges.begin(), l_directed_edges.end(), g);
-
-    auto have_common_vertex = [](const std::shared_ptr<DirectedEdge>& e1, const std::shared_ptr<DirectedEdge>& e2) {
-        return e1->input_local_network == e2->input_local_network ||
-               e1->input_local_network == e2->output_local_network ||
-               e1->output_local_network == e2->input_local_network ||
-               e1->output_local_network == e2->output_local_network;
-    };
-
-    if (have_common_vertex(l_directed_edges[0], l_directed_edges[1])) {
-        for (size_t i = 2; i < l_directed_edges.size(); ++i) {
-            if (!have_common_vertex(l_directed_edges[0], l_directed_edges[i])) {
-                std::swap(l_directed_edges[1], l_directed_edges[i]);
-                break;
-            }
-        }
-    }
-}
-
-void CBN::generate_global_scenes() {
-    std::vector<int> l_edges_indexes;
-    for (auto& edge : l_directed_edges) l_edges_indexes.push_back(edge->index_variable);
-
-    int n = l_edges_indexes.size();
-    for (int i = 0; i < (1 << n); ++i) {
-        std::vector<int> combination;
-        for (int bit = 0; bit < n; ++bit) {
-            combination.push_back((i >> (n - 1 - bit)) & 1);
-        }
-        l_global_scenes.push_back(std::make_shared<GlobalScene>(l_edges_indexes, combination));
-    }
-}
-
-void CBN::count_fields_by_global_scenes() {
-    d_global_scenes_count.clear();
-
-    // Pre-cache g_index to LocalAttractor for efficiency
-    std::map<int, std::shared_ptr<LocalAttractor>> g_index_to_attr;
-    for (auto& net : l_local_networks) {
-        for (auto& scene : net->local_scenes) {
-            for (auto& attr : scene->l_attractors) {
-                g_index_to_attr[attr->g_index] = attr;
-            }
-        }
-    }
-
-    for (auto const& [key, field] : d_attractor_fields) {
-        std::map<int, int> d_variable_value;
-        for (int i_attractor : field) {
-            auto it = g_index_to_attr.find(i_attractor);
-            if (it != g_index_to_attr.end()) {
-                auto& attr = it->second;
-                for (size_t i = 0; i < attr->relation_index.size(); ++i) {
-                    if (i < attr->local_scene.length()) {
-                        d_variable_value[attr->relation_index[i]] = attr->local_scene[i] - '0';
-                    }
-                }
-            }
-        }
-
-        if (d_variable_value.empty()) continue;
-
-        std::string combination_key = "";
-        std::vector<int> sorted_keys;
-        for (auto const& [v_idx, v_val] : d_variable_value) sorted_keys.push_back(v_idx);
-        std::sort(sorted_keys.begin(), sorted_keys.end());
-        for (int k : sorted_keys) combination_key += std::to_string(d_variable_value[k]);
-
-        d_global_scenes_count[combination_key]++;
     }
 }
 
@@ -351,14 +230,17 @@ void CBN::find_compatible_pairs() {
     }
 }
 
+// OPTIMIZED MEMORY PHASE 3: std::vector<int> instead of std::set<int>
 void CBN::mount_stable_attractor_fields() {
-    std::vector<std::set<int>> fields;
+    std::vector<std::vector<int>> fields;
     fields.reserve(l_directed_edges.size() * 2);
     for (auto& edge : l_directed_edges) {
         if (!edge) continue;
         for (int val : {0, 1}) {
             for (auto& pair : edge->d_comp_pairs_attractors_by_value[val]) {
-                fields.push_back({pair.first, pair.second});
+                std::vector<int> field = {pair.first, pair.second};
+                std::sort(field.begin(), field.end());
+                fields.push_back(field);
             }
         }
     }
@@ -369,17 +251,27 @@ void CBN::mount_stable_attractor_fields() {
     while (merged) {
         merged = false;
         for (size_t i = 0; i < fields.size(); ++i) {
+            if (fields.at(i).empty()) continue; // Sentinel
             for (size_t j = i + 1; j < fields.size(); ++j) {
+                if (fields.at(j).empty()) continue; // Sentinel
+
+                // Efficient sharing check using sorted vectors
                 bool share = false;
-                for (int attr : fields.at(i)) {
-                    if (fields.at(j).count(attr)) {
-                        share = true;
-                        break;
-                    }
+                auto& f1 = fields.at(i);
+                auto& f2 = fields.at(j);
+
+                size_t p1 = 0, p2 = 0;
+                while (p1 < f1.size() && p2 < f2.size()) {
+                    if (f1[p1] == f2[p2]) { share = true; break; }
+                    if (f1[p1] < f2[p2]) p1++;
+                    else p2++;
                 }
+
                 if (share) {
-                    fields.at(i).insert(fields.at(j).begin(), fields.at(j).end());
-                    fields.erase(fields.begin() + j);
+                    f1.insert(f1.end(), f2.begin(), f2.end());
+                    std::sort(f1.begin(), f1.end());
+                    f1.erase(std::unique(f1.begin(), f1.end()), f1.end());
+                    f2.clear(); // Mark as merged (sentinel)
                     merged = true;
                     break;
                 }
@@ -389,16 +281,15 @@ void CBN::mount_stable_attractor_fields() {
     }
 
     d_attractor_fields.clear();
-    for (size_t i = 0; i < fields.size(); ++i) {
-        d_attractor_fields[i + 1] = std::vector<int>(fields.at(i).begin(), fields.at(i).end());
+    int count = 1;
+    for (auto& f : fields) {
+        if (!f.empty()) {
+            d_attractor_fields[count++] = f;
+        }
     }
 }
 
 void CBN::mount_stable_attractor_fields_parallel() {
-    // Step 3 is harder to parallelize due to the iterative merging.
-    // However, the initial pair collection can be parallelized,
-    // and we can use a more efficient merging algorithm if needed.
-    // For now, let's keep the merging sequential but use the parallel versions of Step 1 and 2.
     mount_stable_attractor_fields();
 }
 
@@ -472,7 +363,6 @@ std::shared_ptr<CBN> CBN::cbn_generator(
             out_vars.push_back(out_net->internal_variables.at(pos - 1));
         }
 
-        // Simplification: use OR for generated edges
         std::string coup_func = " OR ";
         auto edge = std::make_shared<DirectedEdge>(i_directed_edge++, i_last_variable++, in_net_idx, out_net_idx, out_vars, coup_func);
         edges.push_back(edge);
@@ -485,7 +375,6 @@ std::shared_ptr<CBN> CBN::cbn_generator(
         }
         net->process_input_signals(inputs);
 
-        // Generate dynamics
         for (int i_local_var : net->internal_variables) {
             int i_template_var = i_local_var - ((net->index - 1) * n_vars_network) + n_vars_network;
             auto pre_cnf = o_template.d_variable_cnf_function.at(i_template_var);
@@ -501,7 +390,7 @@ std::shared_ptr<CBN> CBN::cbn_generator(
 
                     if (std::find(net->internal_variables.begin(), net->internal_variables.end(), local_val) == net->internal_variables.end()) {
                         if (net->external_variables.empty()) { skip = true; break; }
-                        local_val = net->external_variables.at(0); // Simplified mapping
+                        local_val = net->external_variables.at(0);
                     }
                     clause.push_back(pos ? local_val : -local_val);
                 }
@@ -514,6 +403,20 @@ std::shared_ptr<CBN> CBN::cbn_generator(
     auto o_cbn = std::make_shared<CBN>(networks, edges);
     o_cbn->o_global_topology = o_topo;
     return o_cbn;
+}
+
+void CBN::save_attractor_fields_to_json(const std::string& filepath) {
+    using json = nlohmann::json;
+    json j_fields = json::array();
+    for (auto const& [id, field] : d_attractor_fields) {
+        json j_field;
+        j_field["field_id"] = id;
+        j_field["attractor_indices"] = field;
+        j_fields.push_back(j_field);
+    }
+
+    std::ofstream out(filepath);
+    out << j_fields.dump(4) << std::endl;
 }
 
 } // namespace cbnetwork
