@@ -40,6 +40,15 @@ public:
     void show_attractor_pairs() const;
     void show_stable_attractor_fields() const;
 
+    static std::shared_ptr<CBN> cbn_generator(
+        int v_topology,
+        int n_local_networks,
+        int n_vars_network,
+        int n_input_variables,
+        int n_output_variables,
+        int n_max_of_clauses = 2,
+        int n_max_of_literals = 3);
+
 private:
     void _assign_global_indices_to_attractors();
     std::vector<std::string> _generate_local_scenes(std::shared_ptr<LocalNetwork> o_local_network);

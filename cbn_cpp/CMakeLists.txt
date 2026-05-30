@@ -15,3 +15,6 @@ target_link_libraries(verify_cbn cbn_core)
 
 add_executable(run_pipeline examples/run_pipeline.cpp)
 target_link_libraries(run_pipeline cbn_core)
+
+add_executable(experiment_runner examples/experiment_runner.cpp)
+target_link_libraries(experiment_runner cbn_core)
