@@ -19,6 +19,7 @@ struct ExperimentParams {
     int n_max_of_clauses = 3;
     int n_max_of_literals = 2;
     std::string output_file = "results.csv";
+    bool save_fields = false;
 };
 
 void print_usage(char* prog_name) {
@@ -31,6 +32,7 @@ void print_usage(char* prog_name) {
     std::cout << "  --inputs <int>          Input signals per network (default: 2)" << std::endl;
     std::cout << "  --outputs <int>         Output variables per network (default: 2)" << std::endl;
     std::cout << "  --output_file <string>  CSV output filename (default: results.csv)" << std::endl;
+    std::cout << "  --save_fields           Export global attractor fields to JSON (default: false)" << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -45,6 +47,7 @@ int main(int argc, char** argv) {
         else if (arg == "--inputs" && i + 1 < argc) params.n_input_variables = std::stoi(argv[++i]);
         else if (arg == "--outputs" && i + 1 < argc) params.n_output_variables = std::stoi(argv[++i]);
         else if (arg == "--output_file" && i + 1 < argc) params.output_file = argv[++i];
+        else if (arg == "--save_fields") params.save_fields = true;
         else if (arg == "--help") {
             print_usage(argv[0]);
             return 0;
@@ -54,7 +57,6 @@ int main(int argc, char** argv) {
     std::cout << "Starting experiment: " << params.n_samples << " samples, "
               << params.n_local_networks << " networks, " << params.n_vars_network << " vars." << std::endl;
 
-    // Write CSV header
     std::ofstream out(params.output_file);
     out << "sample_id,topology,n_networks,n_vars,step1_time,step2_time,step3_time,total_time,attractors,pairs,fields\n";
     out.close();
@@ -62,7 +64,6 @@ int main(int argc, char** argv) {
     for (int s = 0; s < params.n_samples; ++s) {
         auto start_total = high_resolution_clock::now();
 
-        // 1. Generation (Scoped to loop iteration for memory safety)
         auto cbn = CBN::cbn_generator(
             params.v_topology,
             params.n_local_networks,
@@ -73,7 +74,6 @@ int main(int argc, char** argv) {
             params.n_max_of_literals
         );
 
-        // 2. Execution (Parallel versions)
         auto s1_start = high_resolution_clock::now();
         cbn->find_local_attractors_parallel();
         auto s1_end = high_resolution_clock::now();
@@ -88,7 +88,6 @@ int main(int argc, char** argv) {
 
         auto end_total = high_resolution_clock::now();
 
-        // 3. Metrics
         double t1 = duration<double>(s1_end - s1_start).count();
         double t2 = duration<double>(s2_end - s2_start).count();
         double t3 = duration<double>(s3_end - s3_start).count();
@@ -96,16 +95,18 @@ int main(int argc, char** argv) {
 
         int n_attr = 0;
         for(auto& net : cbn->l_local_networks) n_attr += net->attractor_count;
-
         int n_pairs = 0;
         for(auto& edge : cbn->l_directed_edges) {
             n_pairs += edge->d_comp_pairs_attractors_by_value[0].size();
             n_pairs += edge->d_comp_pairs_attractors_by_value[1].size();
         }
-
         int n_fields = cbn->d_attractor_fields.size();
 
-        // 4. Logging (Direct to CSV, append mode, immediate flush/close)
+        if (params.save_fields) {
+            std::string fields_file = "fields_sample_" + std::to_string(s + 1) + ".json";
+            cbn->save_attractor_fields_to_json(fields_file);
+        }
+
         std::ofstream log(params.output_file, std::ios_base::app);
         log << s + 1 << "," << params.v_topology << "," << params.n_local_networks << "," << params.n_vars_network << ","
             << t1 << "," << t2 << "," << t3 << "," << tt << "," << n_attr << "," << n_pairs << "," << n_fields << "\n";
@@ -115,11 +116,8 @@ int main(int argc, char** argv) {
         if ((s + 1) % 10 == 0 || s == 0) {
             std::cout << "Sample " << s + 1 << "/" << params.n_samples << " completed." << std::endl;
         }
-
-        // cbn shared_ptr goes out of scope and is destroyed here.
     }
 
     std::cout << "Experiment completed. Results saved to " << params.output_file << std::endl;
-
     return 0;
 }

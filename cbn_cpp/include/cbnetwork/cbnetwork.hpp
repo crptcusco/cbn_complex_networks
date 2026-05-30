@@ -43,6 +43,8 @@ public:
     void show_attractor_pairs() const;
     void show_stable_attractor_fields() const;
 
+    void save_attractor_fields_to_json(const std::string& filepath);
+
     static std::shared_ptr<CBN> cbn_generator(
         int v_topology,
         int n_local_networks,
