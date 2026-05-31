@@ -5,9 +5,12 @@
 #include <memory>
 #include <map>
 #include <set>
+#include <string>
+#include <tuple>
 #include "cbnetwork/localnetwork.hpp"
 #include "cbnetwork/directededge.hpp"
 #include "cbnetwork/globaltopology.hpp"
+#include "cbnetwork/globalscene.hpp"
 
 namespace cbnetwork {
 
@@ -15,9 +18,13 @@ class CBN {
 public:
     std::vector<std::shared_ptr<LocalNetwork>> l_local_networks;
     std::vector<std::shared_ptr<DirectedEdge>> l_directed_edges;
-    std::map<int, std::tuple<int, int, int>> d_local_attractors;
+    std::map<int, std::tuple<int, int, int>> d_local_attractors_info;
+    std::map<int, std::shared_ptr<LocalAttractor>> d_local_attractors_ptr;
     std::map<int, std::vector<int>> d_attractor_fields;
     std::shared_ptr<GlobalTopology> o_global_topology;
+
+    std::vector<std::shared_ptr<GlobalScene>> l_global_scenes;
+    std::map<std::string, int> d_global_scenes_count;
 
     CBN(const std::vector<std::shared_ptr<LocalNetwork>>& networks,
         const std::vector<std::shared_ptr<DirectedEdge>>& edges)
@@ -42,6 +49,18 @@ public:
     void show_local_attractors() const;
     void show_attractor_pairs() const;
     void show_stable_attractor_fields() const;
+
+    void show_directed_edges() const;
+    void show_coupled_signals_kind() const;
+    void show_description() const;
+    void show_global_scenes() const;
+    void show_resume() const;
+    void show_local_attractors_dictionary() const;
+    void show_stable_attractor_fields_detailed() const;
+    void show_attractor_fields() const;
+
+    void generate_global_scenes();
+    void count_fields_by_global_scenes();
 
     void save_attractor_fields_to_json(const std::string& filepath);
 
