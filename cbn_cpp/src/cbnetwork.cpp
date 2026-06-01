@@ -2,14 +2,28 @@
 #include "cbnetwork/localtemplates.hpp"
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/internalvariable.hpp"
+#include "cbnetwork/customtext.hpp"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
 #include <set>
+#include <random>
+#include <cmath>
 #include <omp.h>
 #include "nlohmann/json.hpp"
 
 namespace cbnetwork {
+
+bool CBN::update_network_by_index(std::shared_ptr<LocalNetwork> o_local_network_update) {
+    if (!o_local_network_update) return false;
+    for (size_t i = 0; i < l_local_networks.size(); ++i) {
+        if (l_local_networks[i]->index == o_local_network_update->index) {
+            l_local_networks[i] = o_local_network_update;
+            return true;
+        }
+    }
+    return false;
+}
 
 void CBN::process_output_signals() {
     std::map<int, std::shared_ptr<LocalNetwork>> local_network_dict;
@@ -25,6 +39,114 @@ void CBN::process_output_signals() {
         int source_network_index = edge->output_local_network;
         if (local_network_dict.count(source_network_index)) {
             local_network_dict[source_network_index]->output_signals.push_back(edge);
+        }
+    }
+}
+
+void CBN::order_edges_by_compatibility() {
+    if (l_directed_edges.empty()) return;
+
+    auto is_compatible = [](const std::vector<std::shared_ptr<DirectedEdge>>& l_group_base, std::shared_ptr<DirectedEdge> o_group) {
+        for (const auto& aux_par : l_group_base) {
+            if (aux_par->input_local_network == o_group->input_local_network ||
+                aux_par->input_local_network == o_group->output_local_network ||
+                aux_par->output_local_network == o_group->output_local_network ||
+                aux_par->output_local_network == o_group->input_local_network) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    std::vector<std::shared_ptr<DirectedEdge>> l_base = {l_directed_edges[0]};
+    std::vector<std::shared_ptr<DirectedEdge>> aux_l_rest_groups(l_directed_edges.begin() + 1, l_directed_edges.end());
+
+    std::vector<std::shared_ptr<DirectedEdge>> final_rest;
+    while (!aux_l_rest_groups.empty()) {
+        bool found = false;
+        for (auto it = aux_l_rest_groups.begin(); it != aux_l_rest_groups.end(); ++it) {
+            if (is_compatible(l_base, *it)) {
+                l_base.push_back(*it);
+                aux_l_rest_groups.erase(it);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            // Not compatible with current base, move first to end of rest if not progress?
+            // Python: aux_l_rest_groups.remove(v_group); aux_l_rest_groups.append(v_group)
+            // This might loop if not careful. Let's just append remaining to l_base at the end.
+            for (auto& e : aux_l_rest_groups) l_base.push_back(e);
+            aux_l_rest_groups.clear();
+        }
+    }
+
+    l_directed_edges = l_base;
+}
+
+void CBN::order_edges_by_grade() {
+    std::map<int, int> network_degrees;
+    for (const auto& net : l_local_networks) network_degrees[net->index] = 0;
+    for (const auto& edge : l_directed_edges) {
+        network_degrees[edge->input_local_network]++;
+        network_degrees[edge->output_local_network]++;
+    }
+
+    auto calculate_edge_grade = [&](std::shared_ptr<DirectedEdge> edge) {
+        return network_degrees[edge->input_local_network] + network_degrees[edge->output_local_network];
+    };
+
+    std::sort(l_directed_edges.begin(), l_directed_edges.end(), [&](std::shared_ptr<DirectedEdge> a, std::shared_ptr<DirectedEdge> b) {
+        return calculate_edge_grade(a) > calculate_edge_grade(b);
+    });
+
+    auto is_adjacent = [](std::shared_ptr<DirectedEdge> edge1, std::shared_ptr<DirectedEdge> edge2) {
+        return edge1->input_local_network == edge2->input_local_network ||
+               edge1->input_local_network == edge2->output_local_network ||
+               edge1->output_local_network == edge2->output_local_network ||
+               edge1->output_local_network == edge2->input_local_network;
+    };
+
+    if (l_directed_edges.empty()) return;
+
+    std::vector<std::shared_ptr<DirectedEdge>> ordered_edges = {l_directed_edges[0]};
+    l_directed_edges.erase(l_directed_edges.begin());
+
+    while (!l_directed_edges.empty()) {
+        bool found = false;
+        for (auto it = l_directed_edges.begin(); it != l_directed_edges.end(); ++it) {
+            if (is_adjacent(ordered_edges.back(), *it)) {
+                ordered_edges.push_back(*it);
+                l_directed_edges.erase(it);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            ordered_edges.push_back(l_directed_edges[0]);
+            l_directed_edges.erase(l_directed_edges.begin());
+        }
+    }
+    l_directed_edges = ordered_edges;
+}
+
+void CBN::disorder_edges() {
+    if (l_directed_edges.size() < 2) return;
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(l_directed_edges.begin(), l_directed_edges.end(), g);
+
+    auto have_common_vertex = [](std::shared_ptr<DirectedEdge> edge1, std::shared_ptr<DirectedEdge> edge2) {
+        std::set<int> v1 = {edge1->input_local_network, edge1->output_local_network};
+        return v1.count(edge2->input_local_network) || v1.count(edge2->output_local_network);
+    };
+
+    if (have_common_vertex(l_directed_edges[0], l_directed_edges[1])) {
+        for (size_t i = 2; i < l_directed_edges.size(); ++i) {
+            if (!have_common_vertex(l_directed_edges[0], l_directed_edges[i])) {
+                std::swap(l_directed_edges[1], l_directed_edges[i]);
+                break;
+            }
         }
     }
 }
@@ -121,6 +243,7 @@ void CBN::find_compatible_pairs_parallel() {
 
 void CBN::generate_attractor_dictionary() {
     d_local_attractors.clear();
+    d_local_attractors_ptr.clear();
     for (auto& net : l_local_networks) {
         if (!net) continue;
         for (auto& scene : net->local_scenes) {
@@ -128,9 +251,51 @@ void CBN::generate_attractor_dictionary() {
             for (auto& attractor : scene->l_attractors) {
                 if (attractor) {
                     d_local_attractors[attractor->g_index] = {net->index, scene->index, attractor->l_index};
+                    d_local_attractors_ptr[attractor->g_index] = attractor;
                 }
             }
         }
+    }
+}
+
+void CBN::generate_global_scenes() {
+    CustomText::make_title("Generated Global Scenes");
+    std::vector<int> l_edges_indexes;
+    for (const auto& edge : l_directed_edges) l_edges_indexes.push_back(edge->index_variable);
+
+    int n = l_edges_indexes.size();
+    int total_combinations = 1 << n;
+    l_global_scenes.clear();
+    for (int i = 0; i < total_combinations; ++i) {
+        std::vector<int> combination;
+        for (int bit = 0; bit < n; ++bit) {
+            combination.push_back((i >> (n - 1 - bit)) & 1);
+        }
+        l_global_scenes.push_back(std::make_shared<GlobalScene>(l_edges_indexes, combination));
+    }
+    CustomText::make_sub_title("Global Scenes generated");
+}
+
+void CBN::count_fields_by_global_scenes() {
+    d_global_scenes_count.clear();
+    for (auto const& [key, o_attractor_field] : d_attractor_fields) {
+        std::map<int, int> d_variable_value;
+        for (int i_attractor : o_attractor_field) {
+            auto o_attractor = get_local_attractor_by_index(i_attractor);
+            if (o_attractor) {
+                for (size_t aux_pos = 0; aux_pos < o_attractor->relation_index.size(); ++aux_pos) {
+                    int aux_variable = o_attractor->relation_index[aux_pos];
+                    if (aux_pos < o_attractor->local_scene.length()) {
+                        d_variable_value[aux_variable] = o_attractor->local_scene[aux_pos] - '0';
+                    }
+                }
+            }
+        }
+        std::string combination_key = "";
+        for (auto const& [var, val] : d_variable_value) {
+            combination_key += std::to_string(val);
+        }
+        d_global_scenes_count[combination_key]++;
     }
 }
 
@@ -188,6 +353,13 @@ void CBN::process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network) {
     }
 }
 
+std::shared_ptr<LocalAttractor> CBN::get_local_attractor_by_index(int i_attractor) {
+    if (d_local_attractors_ptr.count(i_attractor)) {
+        return d_local_attractors_ptr.at(i_attractor);
+    }
+    return nullptr;
+}
+
 std::vector<std::shared_ptr<LocalAttractor>> CBN::get_attractors_by_input_signal_value(int index_variable_signal, int signal_value) {
     std::vector<std::shared_ptr<LocalAttractor>> l_attractors;
     for (auto& net : l_local_networks) {
@@ -207,6 +379,45 @@ std::vector<std::shared_ptr<LocalAttractor>> CBN::get_attractors_by_input_signal
         }
     }
     return l_attractors;
+}
+
+std::shared_ptr<LocalNetwork> CBN::get_network_by_index(int index) {
+    for (auto& net : l_local_networks) {
+        if (net->index == index) return net;
+    }
+    return nullptr;
+}
+
+int CBN::get_n_local_attractors() const {
+    int total = 0;
+    for (const auto& net : l_local_networks) {
+        for (const auto& scene : net->local_scenes) {
+            total += scene->l_attractors.size();
+        }
+    }
+    return total;
+}
+
+int CBN::get_n_pair_attractors() const {
+    int total = 0;
+    for (const auto& edge : l_directed_edges) {
+        if (edge->d_comp_pairs_attractors_by_value.count(0)) {
+            total += edge->d_comp_pairs_attractors_by_value.at(0).size();
+        }
+        if (edge->d_comp_pairs_attractors_by_value.count(1)) {
+            total += edge->d_comp_pairs_attractors_by_value.at(1).size();
+        }
+    }
+    return total;
+}
+
+int CBN::get_n_attractor_fields() const {
+    return d_attractor_fields.size();
+}
+
+int CBN::get_n_local_variables() const {
+    if (l_local_networks.empty()) return 0;
+    return l_local_networks[0]->internal_variables.size();
 }
 
 void CBN::find_compatible_pairs() {
