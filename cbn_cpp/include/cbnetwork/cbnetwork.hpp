@@ -24,6 +24,9 @@ public:
     std::map<std::string, int> d_global_scenes_count;
     std::shared_ptr<GlobalTopology> o_global_topology;
 
+    std::vector<std::shared_ptr<GlobalScene>> l_global_scenes;
+    std::map<std::string, int> d_global_scenes_count;
+
     CBN(const std::vector<std::shared_ptr<LocalNetwork>>& networks,
         const std::vector<std::shared_ptr<DirectedEdge>>& edges)
         : l_local_networks(networks), l_directed_edges(edges), o_global_topology(nullptr) {
@@ -59,6 +62,18 @@ public:
     void show_local_attractors() const;
     void show_attractor_pairs() const;
     void show_stable_attractor_fields() const;
+
+    void show_directed_edges() const;
+    void show_coupled_signals_kind() const;
+    void show_description() const;
+    void show_global_scenes() const;
+    void show_resume() const;
+    void show_local_attractors_dictionary() const;
+    void show_stable_attractor_fields_detailed() const;
+    void show_attractor_fields() const;
+
+    void generate_global_scenes();
+    void count_fields_by_global_scenes();
 
     void save_attractor_fields_to_json(const std::string& filepath);
 
