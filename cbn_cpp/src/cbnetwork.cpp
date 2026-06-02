@@ -2,6 +2,7 @@
 #include "cbnetwork/localtemplates.hpp"
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/internalvariable.hpp"
+#include "cbnetwork/customtext.hpp"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -47,6 +48,7 @@ std::vector<std::string> CBN::_generate_local_scenes(std::shared_ptr<LocalNetwor
 }
 
 void CBN::find_local_attractors_sequential() {
+    CustomText::make_title("FIND LOCAL ATTRACTORS");
     for (auto& net : l_local_networks) {
         if (!net) continue;
         if (net->local_scenes.empty()) {
@@ -62,9 +64,11 @@ void CBN::find_local_attractors_sequential() {
 
     _assign_global_indices_to_attractors();
     generate_attractor_dictionary();
+    CustomText::make_sub_sub_title("END FIND LOCAL ATTRACTORS");
 }
 
 void CBN::find_local_attractors_parallel() {
+    CustomText::make_title("FIND LOCAL ATTRACTORS PARALLEL");
     #pragma omp parallel for
     for (int i = 0; i < (int)l_local_networks.size(); ++i) {
         auto& net = l_local_networks.at(i);
@@ -79,6 +83,7 @@ void CBN::find_local_attractors_parallel() {
 
     _assign_global_indices_to_attractors();
     generate_attractor_dictionary();
+    CustomText::make_sub_sub_title("END FIND LOCAL ATTRACTORS PARALLEL");
 }
 
 void CBN::_assign_global_indices_to_attractors() {
@@ -97,6 +102,7 @@ void CBN::_assign_global_indices_to_attractors() {
 }
 
 void CBN::find_compatible_pairs_parallel() {
+    CustomText::make_title("FIND COMPATIBLE ATTRACTOR PAIRS (PARALLEL)");
     #pragma omp parallel for
     for (int i = 0; i < (int)l_directed_edges.size(); ++i) {
         auto& edge = l_directed_edges.at(i);
@@ -117,17 +123,20 @@ void CBN::find_compatible_pairs_parallel() {
             }
         }
     }
+    CustomText::make_sub_sub_title("END FIND COMPATIBLE ATTRACTOR PAIRS (PARALLEL)");
 }
 
 void CBN::generate_attractor_dictionary() {
-    d_local_attractors.clear();
+    d_local_attractors_info.clear();
+    d_local_attractors_ptr.clear();
     for (auto& net : l_local_networks) {
         if (!net) continue;
         for (auto& scene : net->local_scenes) {
             if (!scene) continue;
             for (auto& attractor : scene->l_attractors) {
                 if (attractor) {
-                    d_local_attractors[attractor->g_index] = {net->index, scene->index, attractor->l_index};
+                    d_local_attractors_info[attractor->g_index] = {net->index, scene->index, attractor->l_index};
+                    d_local_attractors_ptr[attractor->g_index] = attractor;
                 }
             }
         }
@@ -157,7 +166,7 @@ void CBN::process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network) {
                         auto it = std::find(o_local_network->total_variables.begin(), o_local_network->total_variables.end(), out_var);
                         if (it != o_local_network->total_variables.end()) {
                             int pos = std::distance(o_local_network->total_variables.begin(), it);
-                            if (pos < state->l_variable_values.size()) {
+                            if (pos < (int)state->l_variable_values.size()) {
                                 tt_index += std::to_string(state->l_variable_values.at(pos));
                             }
                         }
@@ -198,7 +207,7 @@ std::vector<std::shared_ptr<LocalAttractor>> CBN::get_attractors_by_input_signal
             if (it != scene->l_index_signals.end()) {
                 int pos = std::distance(scene->l_index_signals.begin(), it);
                 for (const auto& scene_val : scene->l_values) {
-                    if (pos < scene_val.length() && scene_val.at(pos) == (signal_value + '0')) {
+                    if (pos < (int)scene_val.length() && scene_val.at(pos) == (signal_value + '0')) {
                         for (auto& attr : scene->l_attractors) l_attractors.push_back(attr);
                         break;
                     }
@@ -209,7 +218,15 @@ std::vector<std::shared_ptr<LocalAttractor>> CBN::get_attractors_by_input_signal
     return l_attractors;
 }
 
+std::shared_ptr<LocalAttractor> CBN::get_local_attractor_by_index(int i_attractor) {
+    if (d_local_attractors_ptr.count(i_attractor)) {
+        return d_local_attractors_ptr.at(i_attractor);
+    }
+    return nullptr;
+}
+
 void CBN::find_compatible_pairs() {
+    CustomText::make_title("FIND COMPATIBLE ATTRACTOR PAIRS");
     for (auto& edge : l_directed_edges) {
         if (!edge) continue;
         for (int val : {0, 1}) {
@@ -228,10 +245,11 @@ void CBN::find_compatible_pairs() {
             }
         }
     }
+    CustomText::make_sub_sub_title("END FIND COMPATIBLE ATTRACTOR PAIRS");
 }
 
-// OPTIMIZED MEMORY PHASE 3: std::vector<int> instead of std::set<int>
 void CBN::mount_stable_attractor_fields() {
+    CustomText::make_title("FIND ATTRACTOR FIELDS");
     std::vector<std::vector<int>> fields;
     fields.reserve(l_directed_edges.size() * 2);
     for (auto& edge : l_directed_edges) {
@@ -245,7 +263,10 @@ void CBN::mount_stable_attractor_fields() {
         }
     }
 
-    if (fields.empty()) return;
+    if (fields.empty()) {
+        CustomText::make_sub_sub_title("END MOUNT ATTRACTOR FIELDS");
+        return;
+    }
 
     bool merged = true;
     while (merged) {
@@ -255,7 +276,6 @@ void CBN::mount_stable_attractor_fields() {
             for (size_t j = i + 1; j < fields.size(); ++j) {
                 if (fields.at(j).empty()) continue; // Sentinel
 
-                // Efficient sharing check using sorted vectors
                 bool share = false;
                 auto& f1 = fields.at(i);
                 auto& f2 = fields.at(j);
@@ -287,6 +307,7 @@ void CBN::mount_stable_attractor_fields() {
             d_attractor_fields[count++] = f;
         }
     }
+    CustomText::make_sub_sub_title("END MOUNT ATTRACTOR FIELDS");
 }
 
 void CBN::mount_stable_attractor_fields_parallel() {
@@ -294,38 +315,190 @@ void CBN::mount_stable_attractor_fields_parallel() {
 }
 
 void CBN::show_local_attractors() const {
+    CustomText::make_title("Show local attractors");
     for (auto& net : l_local_networks) {
         if (!net) continue;
+        CustomText::make_sub_title("Network " + std::to_string(net->index));
         for (auto& scene : net->local_scenes) {
             if (!scene) continue;
+            std::string title = "Network: " + std::to_string(net->index) + " - Scene: [";
+            for(size_t i=0; i<scene->l_values.size(); ++i) title += scene->l_values[i] + (i==scene->l_values.size()-1?"":", ");
+            title += "] - N. of Attractors: " + std::to_string(scene->l_attractors.size());
+            CustomText::make_sub_sub_title(title);
             for (auto& attr : scene->l_attractors) {
-                if (attr) attr->show();
-            }
-        }
-    }
-}
-
-void CBN::show_attractor_pairs() const {
-    for (auto& edge : l_directed_edges) {
-        if (!edge) continue;
-        for (int val : {0, 1}) {
-            if (edge->d_comp_pairs_attractors_by_value.count(val)) {
-                for (auto& pair : edge->d_comp_pairs_attractors_by_value.at(val)) {
-                    std::cout << "Pair: (" << pair.first << ", " << pair.second << ")" << std::endl;
+                if (attr) {
+                    CustomText::print_simple_line();
+                    std::cout << "Global index: " << attr->g_index << std::endl;
+                    attr->show();
                 }
             }
         }
     }
 }
 
+void CBN::show_attractor_pairs() const {
+    CustomText::print_duplex_line();
+    std::cout << "LIST OF THE COMPATIBLE ATTRACTOR PAIRS" << std::endl;
+    int total_pairs = 0;
+    for (auto& edge : l_directed_edges) {
+        if (!edge) continue;
+        CustomText::print_simple_line();
+        std::cout << "Edge: " << edge->output_local_network << " -> " << edge->input_local_network << std::endl;
+        for (int val : {0, 1}) {
+            if (edge->d_comp_pairs_attractors_by_value.count(val)) {
+                CustomText::print_simple_line();
+                std::cout << "Coupling Variable: " << edge->index_variable << ", Scene: " << val << std::endl;
+                for (auto& pair : edge->d_comp_pairs_attractors_by_value.at(val)) {
+                    std::cout << "(" << pair.first << ", " << pair.second << ")" << std::endl;
+                    total_pairs++;
+                }
+            }
+        }
+    }
+    std::cout << "Total compatible attractor pairs: " << total_pairs << std::endl;
+}
+
 void CBN::show_stable_attractor_fields() const {
+    CustomText::print_duplex_line();
+    std::cout << "Show the list of attractor fields" << std::endl;
     std::cout << "Number Stable Attractor Fields: " << d_attractor_fields.size() << std::endl;
     for (auto const& [key, field] : d_attractor_fields) {
+        CustomText::print_simple_line();
         std::cout << key << ": [";
         for (size_t i = 0; i < field.size(); ++i) {
             std::cout << field.at(i) << (i == field.size() - 1 ? "" : ", ");
         }
         std::cout << "]" << std::endl;
+    }
+}
+
+void CBN::show_directed_edges() const {
+    CustomText::print_duplex_line();
+    std::cout << "SHOW THE DIRECTED EDGES OF THE CBN" << std::endl;
+    for (auto& edge : l_directed_edges) {
+        if (edge) edge->show();
+    }
+}
+
+void CBN::show_coupled_signals_kind() const {
+    CustomText::print_duplex_line();
+    std::cout << "SHOW THE COUPLED SIGNALS KINDS" << std::endl;
+    int n_restricted = 0;
+    for (auto& edge : l_directed_edges) {
+        if (!edge) continue;
+        std::cout << "SIGNAL: " << edge->index_variable
+                  << ", RELATION: " << edge->output_local_network << " -> " << edge->input_local_network
+                  << ", KIND: " << edge->kind_signal << std::endl;
+        if (edge->kind_signal == 1) n_restricted++;
+    }
+    std::cout << "Number of restricted signals: " << n_restricted << std::endl;
+}
+
+void CBN::show_description() const {
+    CustomText::make_title("CBN description");
+    std::string nets = "Local Networks: [";
+    for(size_t i=0; i<l_local_networks.size(); ++i) nets += std::to_string(l_local_networks[i]->index) + (i==l_local_networks.size()-1?"":", ");
+    nets += "]";
+    CustomText::make_sub_title(nets);
+    for (auto& net : l_local_networks) if(net) net->show();
+    CustomText::make_sub_title("Directed edges: " + nets);
+}
+
+void CBN::show_global_scenes() const {
+    CustomText::make_sub_title("LIST OF GLOBAL SCENES");
+    for (auto& scene : l_global_scenes) if(scene) scene->show();
+}
+
+void CBN::show_resume() const {
+    CustomText::make_title("CBN Detailed Resume");
+    CustomText::make_sub_sub_title("Main Characteristics");
+    CustomText::print_simple_line();
+    std::cout << "Number of local networks: " << l_local_networks.size() << std::endl;
+    std::cout << "Topology Type: " << (o_global_topology ? std::to_string(o_global_topology->v_topology) : "N/A") << std::endl;
+
+    CustomText::make_sub_sub_title("Indicators");
+    CustomText::print_simple_line();
+    int total_attractors = 0;
+    for(auto& net : l_local_networks) if(net) for(auto& scene : net->local_scenes) if(scene) total_attractors += scene->l_attractors.size();
+    std::cout << "Number of local attractors: " << total_attractors << std::endl;
+    std::cout << "Number of attractor fields: " << d_attractor_fields.size() << std::endl;
+    CustomText::print_simple_line();
+}
+
+void CBN::show_local_attractors_dictionary() const {
+    CustomText::make_title("Global Dictionary of Local Attractors");
+    for (auto const& [key, val] : d_local_attractors_info) {
+        std::cout << key << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
+    }
+}
+
+void CBN::show_stable_attractor_fields_detailed() const {
+    CustomText::print_duplex_line();
+    std::cout << "Showing the list of attractor fields" << std::endl;
+    std::cout << "Number of Stable Attractor Fields: " << d_attractor_fields.size() << std::endl;
+
+    for (auto const& [key, field] : d_attractor_fields) {
+        CustomText::print_simple_line();
+        std::cout << key << " -> [";
+        for(size_t i=0; i<field.size(); ++i) std::cout << field[i] << (i==field.size()-1?"":", ");
+        std::cout << "]" << std::endl;
+
+        for (int i_attr : field) {
+            if (d_local_attractors_info.count(i_attr)) {
+                auto val = d_local_attractors_info.at(i_attr);
+                std::cout << i_attr << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
+                auto o_attr = const_cast<CBN*>(this)->get_local_attractor_by_index(i_attr);
+                if (o_attr) o_attr->show();
+            }
+        }
+    }
+}
+
+void CBN::show_attractor_fields() const {
+    CustomText::make_sub_title("List of attractor fields");
+    for (auto const& [key, field] : d_attractor_fields) {
+        std::cout << key << " -> [";
+        for(size_t i=0; i<field.size(); ++i) std::cout << field[i] << (i==field.size()-1?"":", ");
+        std::cout << "]" << std::endl;
+    }
+    std::cout << "Number of attractor fields found: " << d_attractor_fields.size() << std::endl;
+}
+
+void CBN::generate_global_scenes() {
+    CustomText::make_title("Generated Global Scenes");
+    std::vector<int> l_edges_indexes;
+    for (auto& edge : l_directed_edges) if(edge) l_edges_indexes.push_back(edge->index_variable);
+
+    int n = l_edges_indexes.size();
+    for (int i = 0; i < (1 << n); ++i) {
+        std::vector<int> combination;
+        for (int bit = 0; bit < n; ++bit) {
+            combination.push_back((i >> (n - 1 - bit)) & 1);
+        }
+        l_global_scenes.push_back(std::make_shared<GlobalScene>(l_edges_indexes, combination));
+    }
+    CustomText::make_sub_title("Global Scenes generated");
+}
+
+void CBN::count_fields_by_global_scenes() {
+    d_global_scenes_count.clear();
+    for (auto const& [id, field] : d_attractor_fields) {
+        std::map<int, int> d_variable_value;
+        for (int i_attr : field) {
+            auto o_attr = get_local_attractor_by_index(i_attr);
+            if (o_attr) {
+                for (size_t i = 0; i < o_attr->relation_index.size(); ++i) {
+                    if (i < o_attr->local_scene.length()) {
+                        d_variable_value[o_attr->relation_index[i]] = o_attr->local_scene[i] - '0';
+                    }
+                }
+            }
+        }
+        std::string combination_key = "";
+        for (auto const& [var, val] : d_variable_value) {
+            combination_key += std::to_string(val);
+        }
+        d_global_scenes_count[combination_key]++;
     }
 }
 
