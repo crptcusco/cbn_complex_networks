@@ -3,6 +3,7 @@
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/internalvariable.hpp"
 #include "cbnetwork/customtext.hpp"
+#include "cbnetwork/coupling.hpp"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -515,6 +516,119 @@ void CBN::mount_stable_attractor_fields_parallel() {
     mount_stable_attractor_fields();
 }
 
+bool CBN::evaluate_pair(const std::vector<int>& base_pairs,
+                       const std::pair<int, int>& candidate_pair,
+                       const std::map<int, std::tuple<int, int, int>>& d_local_attractors) {
+    std::set<int> already_visited_networks;
+    for (int idx : base_pairs) {
+        if (d_local_attractors.count(idx)) {
+            already_visited_networks.insert(std::get<0>(d_local_attractors.at(idx)));
+        }
+    }
+
+    int double_check = 0;
+    // Check first of candidate
+    if (d_local_attractors.count(candidate_pair.first)) {
+        int net_idx = std::get<0>(d_local_attractors.at(candidate_pair.first));
+        if (already_visited_networks.count(net_idx)) {
+            if (std::find(base_pairs.begin(), base_pairs.end(), candidate_pair.first) != base_pairs.end()) {
+                double_check++;
+            }
+        } else {
+            double_check++;
+        }
+    }
+
+    // Check second of candidate
+    if (d_local_attractors.count(candidate_pair.second)) {
+        int net_idx = std::get<0>(d_local_attractors.at(candidate_pair.second));
+        if (already_visited_networks.count(net_idx)) {
+            if (std::find(base_pairs.begin(), base_pairs.end(), candidate_pair.second) != base_pairs.end()) {
+                double_check++;
+            }
+        } else {
+            double_check++;
+        }
+    }
+
+    return double_check == 2;
+}
+
+std::vector<std::vector<int>> CBN::cartesian_product_mod(const std::vector<std::vector<int>>& base_pairs,
+                                                      const std::vector<std::pair<int, int>>& candidate_pairs,
+                                                      const std::map<int, std::tuple<int, int, int>>& d_local_attractors) {
+    std::vector<std::vector<int>> field_pair_list;
+    for (const auto& base_pair : base_pairs) {
+        for (const auto& candidate_pair : candidate_pairs) {
+            if (evaluate_pair(base_pair, candidate_pair, d_local_attractors)) {
+                std::vector<int> new_pair = base_pair;
+                new_pair.push_back(candidate_pair.first);
+                new_pair.push_back(candidate_pair.second);
+                std::sort(new_pair.begin(), new_pair.end());
+                new_pair.erase(std::unique(new_pair.begin(), new_pair.end()), new_pair.end());
+                field_pair_list.push_back(new_pair);
+            }
+        }
+    }
+    return field_pair_list;
+}
+
+std::vector<std::vector<int>> CBN::process_single_base_pair(const std::vector<int>& base_pair,
+                                                          const std::vector<std::pair<int, int>>& candidate_pairs,
+                                                          const std::map<int, std::tuple<int, int, int>>& d_local_attractors) {
+    return cartesian_product_mod({base_pair}, candidate_pairs, d_local_attractors);
+}
+
+void CBN::mount_stable_attractor_fields_parallel_chunks(int num_cpus) {
+    CustomText::make_title("MOUNT STABLE ATTRACTOR FIELDS (PARALLEL CHUNKS)");
+    if (num_cpus <= 0) num_cpus = omp_get_max_threads();
+
+    order_edges_by_compatibility();
+
+    if (l_directed_edges.empty()) return;
+
+    auto& first_edge = l_directed_edges[0];
+    std::vector<std::vector<int>> l_base_pairs;
+    for (int val : {0, 1}) {
+        for (auto& p : first_edge->d_comp_pairs_attractors_by_value[val]) {
+            l_base_pairs.push_back({p.first, p.second});
+        }
+    }
+
+    for (size_t i = 1; i < l_directed_edges.size(); ++i) {
+        auto& edge = l_directed_edges[i];
+        std::vector<std::pair<int, int>> candidate_pairs;
+        for (int val : {0, 1}) {
+            for (auto& p : edge->d_comp_pairs_attractors_by_value[val]) {
+                candidate_pairs.push_back(p);
+            }
+        }
+
+        if (l_base_pairs.empty() || candidate_pairs.empty()) {
+            l_base_pairs.clear();
+            break;
+        }
+
+        std::vector<std::vector<int>> next_base;
+        #pragma omp parallel for schedule(dynamic)
+        for (int j = 0; j < (int)l_base_pairs.size(); ++j) {
+            auto results = process_single_base_pair(l_base_pairs[j], candidate_pairs, d_local_attractors);
+            #pragma omp critical
+            {
+                for (auto& r : results) next_base.push_back(r);
+            }
+        }
+        l_base_pairs = next_base;
+        if (l_base_pairs.empty()) break;
+    }
+
+    d_attractor_fields.clear();
+    for (size_t i = 0; i < l_base_pairs.size(); ++i) {
+        d_attractor_fields[i + 1] = l_base_pairs[i];
+    }
+    CustomText::make_sub_sub_title("END MOUNT STABLE ATTRACTOR FIELDS");
+}
+
 void CBN::show_local_attractors() const {
     CustomText::make_title("Show local attractors");
     for (auto& net : l_local_networks) {
@@ -628,7 +742,7 @@ void CBN::show_resume() const {
 
 void CBN::show_local_attractors_dictionary() const {
     CustomText::make_title("Global Dictionary of Local Attractors");
-    for (auto const& [key, val] : d_local_attractors_info) {
+    for (auto const& [key, val] : d_local_attractors) {
         std::cout << key << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
     }
 }
@@ -645,8 +759,8 @@ void CBN::show_stable_attractor_fields_detailed() const {
         std::cout << "]" << std::endl;
 
         for (int i_attr : field) {
-            if (d_local_attractors_info.count(i_attr)) {
-                auto val = d_local_attractors_info.at(i_attr);
+            if (d_local_attractors.count(i_attr)) {
+                auto val = d_local_attractors.at(i_attr);
                 std::cout << i_attr << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
                 auto o_attr = const_cast<CBN*>(this)->get_local_attractor_by_index(i_attr);
                 if (o_attr) o_attr->show();
@@ -665,43 +779,6 @@ void CBN::show_attractor_fields() const {
     std::cout << "Number of attractor fields found: " << d_attractor_fields.size() << std::endl;
 }
 
-void CBN::generate_global_scenes() {
-    CustomText::make_title("Generated Global Scenes");
-    std::vector<int> l_edges_indexes;
-    for (auto& edge : l_directed_edges) if(edge) l_edges_indexes.push_back(edge->index_variable);
-
-    int n = l_edges_indexes.size();
-    for (int i = 0; i < (1 << n); ++i) {
-        std::vector<int> combination;
-        for (int bit = 0; bit < n; ++bit) {
-            combination.push_back((i >> (n - 1 - bit)) & 1);
-        }
-        l_global_scenes.push_back(std::make_shared<GlobalScene>(l_edges_indexes, combination));
-    }
-    CustomText::make_sub_title("Global Scenes generated");
-}
-
-void CBN::count_fields_by_global_scenes() {
-    d_global_scenes_count.clear();
-    for (auto const& [id, field] : d_attractor_fields) {
-        std::map<int, int> d_variable_value;
-        for (int i_attr : field) {
-            auto o_attr = get_local_attractor_by_index(i_attr);
-            if (o_attr) {
-                for (size_t i = 0; i < o_attr->relation_index.size(); ++i) {
-                    if (i < o_attr->local_scene.length()) {
-                        d_variable_value[o_attr->relation_index[i]] = o_attr->local_scene[i] - '0';
-                    }
-                }
-            }
-        }
-        std::string combination_key = "";
-        for (auto const& [var, val] : d_variable_value) {
-            combination_key += std::to_string(val);
-        }
-        d_global_scenes_count[combination_key]++;
-    }
-}
 
 std::shared_ptr<CBN> CBN::cbn_generator(
     int v_topology,
@@ -737,9 +814,39 @@ std::shared_ptr<CBN> CBN::cbn_generator(
             out_vars.push_back(out_net->internal_variables.at(pos - 1));
         }
 
-        std::string coup_func = " OR ";
-        auto edge = std::make_shared<DirectedEdge>(i_directed_edge++, i_last_variable++, in_net_idx, out_net_idx, out_vars, coup_func);
+        std::string coup_func = " ∨ ";
+        auto edge = std::make_shared<DirectedEdge>(i_directed_edge++, i_last_variable, in_net_idx, out_net_idx, out_vars, coup_func);
+        i_last_variable++;
         edges.push_back(edge);
+    }
+
+    // Integrate the CNF for the coupling logic
+    // In Python: C <=> (V1 | V2 ...)
+    OrCoupling or_strategy;
+    for (auto& edge : edges) {
+        auto coupling_cnf = or_strategy.to_cnf(edge->l_output_variables, edge->index_variable);
+        auto coupling_variable = std::make_shared<InternalVariable>(edge->index_variable, coupling_cnf);
+
+        for (auto& net : networks) {
+            if (net->index == edge->output_local_network) {
+                // Add the variable index to the network's internal variables if it's not already there
+                if (std::find(net->internal_variables.begin(), net->internal_variables.end(), edge->index_variable) == net->internal_variables.end()) {
+                    net->internal_variables.push_back(edge->index_variable);
+                }
+                net->descriptive_function_variables.push_back(coupling_variable);
+                break;
+            }
+        }
+    }
+
+    // Process output signals to populate the output_signals list of each network
+    for (auto& edge : edges) {
+        for (auto& net : networks) {
+            if (net->index == edge->output_local_network) {
+                net->output_signals.push_back(edge);
+                break;
+            }
+        }
     }
 
     for (auto& net : networks) {
@@ -751,6 +858,7 @@ std::shared_ptr<CBN> CBN::cbn_generator(
 
         for (int i_local_var : net->internal_variables) {
             int i_template_var = i_local_var - ((net->index - 1) * n_vars_network) + n_vars_network;
+            if (o_template.d_variable_cnf_function.find(i_template_var) == o_template.d_variable_cnf_function.end()) continue;
             auto pre_cnf = o_template.d_variable_cnf_function.at(i_template_var);
 
             std::vector<std::vector<int>> clauses;

@@ -24,9 +24,6 @@ public:
     std::map<std::string, int> d_global_scenes_count;
     std::shared_ptr<GlobalTopology> o_global_topology;
 
-    std::vector<std::shared_ptr<GlobalScene>> l_global_scenes;
-    std::map<std::string, int> d_global_scenes_count;
-
     CBN(const std::vector<std::shared_ptr<LocalNetwork>>& networks,
         const std::vector<std::shared_ptr<DirectedEdge>>& edges)
         : l_local_networks(networks), l_directed_edges(edges), o_global_topology(nullptr) {
@@ -50,6 +47,18 @@ public:
     void generate_global_scenes();
     void count_fields_by_global_scenes();
 
+    static bool evaluate_pair(const std::vector<int>& base_pairs,
+                             const std::pair<int, int>& candidate_pair,
+                             const std::map<int, std::tuple<int, int, int>>& d_local_attractors);
+    static std::vector<std::vector<int>> cartesian_product_mod(const std::vector<std::vector<int>>& base_pairs,
+                                                            const std::vector<std::pair<int, int>>& candidate_pairs,
+                                                            const std::map<int, std::tuple<int, int, int>>& d_local_attractors);
+    static std::vector<std::vector<int>> process_single_base_pair(const std::vector<int>& base_pair,
+                                                                const std::vector<std::pair<int, int>>& candidate_pairs,
+                                                                const std::map<int, std::tuple<int, int, int>>& d_local_attractors);
+
+    void mount_stable_attractor_fields_parallel_chunks(int num_cpus = 0);
+
     std::vector<std::shared_ptr<LocalAttractor>> get_attractors_by_input_signal_value(int index_variable_signal, int signal_value);
     std::shared_ptr<LocalAttractor> get_local_attractor_by_index(int i_attractor);
     std::shared_ptr<LocalNetwork> get_network_by_index(int index);
@@ -71,9 +80,6 @@ public:
     void show_local_attractors_dictionary() const;
     void show_stable_attractor_fields_detailed() const;
     void show_attractor_fields() const;
-
-    void generate_global_scenes();
-    void count_fields_by_global_scenes();
 
     void save_attractor_fields_to_json(const std::string& filepath);
 

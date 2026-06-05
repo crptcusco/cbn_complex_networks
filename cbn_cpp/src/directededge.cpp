@@ -62,10 +62,10 @@ std::map<std::string, std::string> DirectedEdge::process_true_table() {
         }
 
         bool result = false;
-        if (coupling_function.find("∨") != std::string::npos) {
+        if (coupling_function.find("∨") != std::string::npos || coupling_function.find("OR") != std::string::npos) {
             result = false;
             for (int j = 0; j < n; ++j) result = result || env['A' + j];
-        } else if (coupling_function.find("∧") != std::string::npos) {
+        } else if (coupling_function.find("∧") != std::string::npos || coupling_function.find("AND") != std::string::npos) {
             result = true;
             for (int j = 0; j < n; ++j) result = result && env['A' + j];
         } else {
