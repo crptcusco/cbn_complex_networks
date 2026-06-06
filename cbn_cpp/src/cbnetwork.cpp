@@ -628,7 +628,7 @@ void CBN::show_resume() const {
 
 void CBN::show_local_attractors_dictionary() const {
     CustomText::make_title("Global Dictionary of Local Attractors");
-    for (auto const& [key, val] : d_local_attractors_info) {
+    for (auto const& [key, val] : d_local_attractors) {
         std::cout << key << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
     }
 }
@@ -645,8 +645,8 @@ void CBN::show_stable_attractor_fields_detailed() const {
         std::cout << "]" << std::endl;
 
         for (int i_attr : field) {
-            if (d_local_attractors_info.count(i_attr)) {
-                auto val = d_local_attractors_info.at(i_attr);
+            if (d_local_attractors.count(i_attr)) {
+                auto val = d_local_attractors.at(i_attr);
                 std::cout << i_attr << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
                 auto o_attr = const_cast<CBN*>(this)->get_local_attractor_by_index(i_attr);
                 if (o_attr) o_attr->show();
@@ -665,43 +665,6 @@ void CBN::show_attractor_fields() const {
     std::cout << "Number of attractor fields found: " << d_attractor_fields.size() << std::endl;
 }
 
-void CBN::generate_global_scenes() {
-    CustomText::make_title("Generated Global Scenes");
-    std::vector<int> l_edges_indexes;
-    for (auto& edge : l_directed_edges) if(edge) l_edges_indexes.push_back(edge->index_variable);
-
-    int n = l_edges_indexes.size();
-    for (int i = 0; i < (1 << n); ++i) {
-        std::vector<int> combination;
-        for (int bit = 0; bit < n; ++bit) {
-            combination.push_back((i >> (n - 1 - bit)) & 1);
-        }
-        l_global_scenes.push_back(std::make_shared<GlobalScene>(l_edges_indexes, combination));
-    }
-    CustomText::make_sub_title("Global Scenes generated");
-}
-
-void CBN::count_fields_by_global_scenes() {
-    d_global_scenes_count.clear();
-    for (auto const& [id, field] : d_attractor_fields) {
-        std::map<int, int> d_variable_value;
-        for (int i_attr : field) {
-            auto o_attr = get_local_attractor_by_index(i_attr);
-            if (o_attr) {
-                for (size_t i = 0; i < o_attr->relation_index.size(); ++i) {
-                    if (i < o_attr->local_scene.length()) {
-                        d_variable_value[o_attr->relation_index[i]] = o_attr->local_scene[i] - '0';
-                    }
-                }
-            }
-        }
-        std::string combination_key = "";
-        for (auto const& [var, val] : d_variable_value) {
-            combination_key += std::to_string(val);
-        }
-        d_global_scenes_count[combination_key]++;
-    }
-}
 
 std::shared_ptr<CBN> CBN::cbn_generator(
     int v_topology,
@@ -793,4 +756,12 @@ void CBN::save_attractor_fields_to_json(const std::string& filepath) {
     out << j_fields.dump(4) << std::endl;
 }
 
-} // namespace cbnetwork
+
+void CBN::find_compatible_pairs_turbo() {
+    find_compatible_pairs_parallel();
+}
+
+void CBN::mount_stable_attractor_fields_turbo() {
+    mount_stable_attractor_fields();
+}
+}

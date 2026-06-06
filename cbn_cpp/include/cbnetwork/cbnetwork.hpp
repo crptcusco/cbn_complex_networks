@@ -24,9 +24,6 @@ public:
     std::map<std::string, int> d_global_scenes_count;
     std::shared_ptr<GlobalTopology> o_global_topology;
 
-    std::vector<std::shared_ptr<GlobalScene>> l_global_scenes;
-    std::map<std::string, int> d_global_scenes_count;
-
     CBN(const std::vector<std::shared_ptr<LocalNetwork>>& networks,
         const std::vector<std::shared_ptr<DirectedEdge>>& edges)
         : l_local_networks(networks), l_directed_edges(edges), o_global_topology(nullptr) {
@@ -39,11 +36,13 @@ public:
     void find_local_attractors_parallel();
     void find_compatible_pairs();
     void find_compatible_pairs_parallel();
+    void find_compatible_pairs_turbo();
     void order_edges_by_compatibility();
     void order_edges_by_grade();
     void disorder_edges();
     void mount_stable_attractor_fields();
     void mount_stable_attractor_fields_parallel();
+    void mount_stable_attractor_fields_turbo();
 
     void generate_attractor_dictionary();
     void process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network);
@@ -71,9 +70,6 @@ public:
     void show_local_attractors_dictionary() const;
     void show_stable_attractor_fields_detailed() const;
     void show_attractor_fields() const;
-
-    void generate_global_scenes();
-    void count_fields_by_global_scenes();
 
     void save_attractor_fields_to_json(const std::string& filepath);
 

@@ -39,6 +39,10 @@ public:
     static std::shared_ptr<LocalNetwork> find_local_attractors_brute_force(
         std::shared_ptr<LocalNetwork> local_network,
         const std::vector<std::string>& local_scenes_strings = {});
+
+    static std::shared_ptr<LocalNetwork> find_local_attractors_turbo(
+        std::shared_ptr<LocalNetwork> local_network,
+        const std::vector<std::string>& local_scenes_strings = {});
 };
 
 } // namespace cbnetwork
