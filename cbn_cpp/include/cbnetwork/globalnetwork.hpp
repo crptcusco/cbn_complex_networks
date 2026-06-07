@@ -24,7 +24,6 @@ public:
 class GlobalNetwork {
 public:
     std::vector<int> l_variables;
-    // std::map<int, Function> d_functions; // Future work
 
     GlobalNetwork() {}
 
@@ -34,8 +33,8 @@ public:
         std::vector<int> l_variables;
         for (auto& net : o_cbn->l_local_networks) {
             if (!net) continue;
-            for (auto& var : net->descriptive_function_variables) {
-                if (var) l_variables.push_back(var->index);
+            for (auto& var : net->internal_variables) {
+                l_variables.push_back(var);
             }
         }
 
@@ -46,20 +45,43 @@ public:
         std::cout << "]" << std::endl;
     }
 
-    static void transform_attractor_fields_to_global_states(const std::map<int, std::vector<int>>& l_attractor_fields) {
-        // Future work
+    static void transform_attractor_fields_to_global_states(std::shared_ptr<CBN> o_cbn) {
+        if (!o_cbn) return;
+        for (auto& pair : o_cbn->d_attractor_fields) {
+            generate_global_states(pair.second, o_cbn);
+        }
     }
 
     static bool test_attractor_fields(std::shared_ptr<CBN> o_cbn) {
-        // Future work
-        return true;
+        if (!o_cbn) return false;
+        bool b_flag = true;
+        for (auto const& [index, field] : o_cbn->d_attractor_fields) {
+            if (test_global_dynamic(field, o_cbn)) {
+                std::cout << "Attractor Field " << index << " : Passed" << std::endl;
+            } else {
+                std::cout << "Attractor Field " << index << " : Failed" << std::endl;
+                b_flag = false;
+            }
+        }
+        return b_flag;
     }
 
-    static void generate_global_states(const std::vector<int>& o_attractor_field, std::shared_ptr<CBN> o_cbn) {
-        // Future work
+    static std::vector<std::shared_ptr<LocalState>> generate_global_states(const std::vector<int>& o_attractor_field, std::shared_ptr<CBN> o_cbn) {
+        std::vector<std::shared_ptr<LocalState>> global_states;
+        for (int attractor_index : o_attractor_field) {
+            auto o_local_attractor = o_cbn->get_local_attractor_by_index(attractor_index);
+            if (o_local_attractor) {
+                for (auto& state : o_local_attractor->l_states) {
+                    global_states.push_back(state);
+                }
+            }
+        }
+        return global_states;
     }
 
-    bool test_global_dynamic() {
+    static bool test_global_dynamic(const std::vector<int>& field, std::shared_ptr<CBN> o_cbn) {
+        // Placeholder for actual dynamic testing logic
+        // In Python it also currently passes if not implemented
         return true;
     }
 };

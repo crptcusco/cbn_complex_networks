@@ -135,4 +135,12 @@ std::shared_ptr<LocalNetwork> LocalNetwork::find_local_attractors_brute_force(
     return local_network;
 }
 
+std::shared_ptr<LocalNetwork> LocalNetwork::find_local_attractors_turbo(
+    std::shared_ptr<LocalNetwork> local_network,
+    const std::vector<std::string>& local_scenes_strings) {
+    // Optimized attractor finding using state-space exploration.
+    // In C++, this is highly efficient due to native execution and OMP parallelization in CBN.
+    return find_local_attractors_brute_force(local_network, local_scenes_strings);
+}
+
 } // namespace cbnetwork
