@@ -11,7 +11,8 @@ namespace cbnetwork {
 class BooleanParser {
 public:
     struct Node {
-        enum Type { CONSTANT, VARIABLE, UNARY, BINARY } type;
+        virtual ~Node() = default;
+        enum Type { CONSTANT, VARIABLE, UNARY, BINARY, THRESHOLD } type;
         bool const_val;
         char var_name;
         std::string op;
@@ -22,6 +23,7 @@ public:
         Node(std::string o, std::unique_ptr<Node> opnd) : type(UNARY), op(o), left(std::move(opnd)) {}
         Node(std::string o, std::unique_ptr<Node> l, std::unique_ptr<Node> r)
             : type(BINARY), op(o), left(std::move(l)), right(std::move(r)) {}
+        Node(Type t) : type(t) {}
     };
 
     std::string input;
@@ -56,6 +58,25 @@ public:
 
     // Precedence matching Python: disjunction < conjunction < implication < unary
     std::unique_ptr<Node> disjunction() {
+        if (input.find("Threshold(") != std::string::npos) {
+            // Handle Threshold(k, {A, B, C})
+            size_t k_pos = input.find("Threshold(") + 10;
+            size_t comma_pos = input.find(",", k_pos);
+            int k = std::stoi(input.substr(k_pos, comma_pos - k_pos));
+
+            size_t brace_start = input.find("{", comma_pos) + 1;
+            size_t brace_end = input.find("}", brace_start);
+            std::string vars_str = input.substr(brace_start, brace_end - brace_start);
+
+            std::vector<char> vars;
+            size_t v_pos = 0;
+            while ((v_pos = vars_str.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ", v_pos)) != std::string::npos) {
+                vars.push_back(vars_str[v_pos]);
+                v_pos++;
+            }
+
+            return std::make_unique<ThresholdNode>(k, vars);
+        }
         auto node = conjunction();
         while (peekToken() == "∨") {
             consumeToken("∨");
@@ -111,6 +132,12 @@ public:
 
     static bool evaluate(const Node* node, const std::map<char, bool>& env) {
         if (!node) return false;
+        if (node->type == Node::THRESHOLD) {
+            const auto* tn = static_cast<const ThresholdNode*>(node);
+            int count = 0;
+            for (char v : tn->vars) if (env.count(v) && env.at(v)) count++;
+            return count >= tn->k;
+        }
         switch (node->type) {
             case Node::CONSTANT: return node->const_val;
             case Node::VARIABLE: return env.at(node->var_name);
@@ -123,6 +150,13 @@ public:
         }
         return false;
     }
+
+private:
+    struct ThresholdNode : public Node {
+        int k;
+        std::vector<char> vars;
+        ThresholdNode(int _k, std::vector<char> _vars) : Node(THRESHOLD), k(_k), vars(_vars) {}
+    };
 };
 
 DirectedEdge::DirectedEdge(int idx, int idx_var, int in_net, int out_net,

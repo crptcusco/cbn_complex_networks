@@ -17,6 +17,21 @@ public:
     virtual std::vector<std::vector<int>> to_cnf(const std::vector<int>& output_variables, int coupling_variable) const = 0;
 };
 
+class ConstantCoupling : public CouplingStrategy {
+public:
+    int value;
+    ConstantCoupling(int v) : value(v != 0 ? 1 : 0) {}
+
+    std::string generate_coupling_function(const std::vector<int>& output_variables) const override {
+        return " " + std::to_string(value) + " ";
+    }
+
+    std::vector<std::vector<int>> to_cnf(const std::vector<int>& output_variables, int coupling_variable) const override {
+        if (value == 1) return {{coupling_variable}};
+        return {{-coupling_variable}};
+    }
+};
+
 class OrCoupling : public CouplingStrategy {
 public:
     std::string generate_coupling_function(const std::vector<int>& output_variables) const override {
@@ -66,6 +81,40 @@ public:
         }
         last_clause.push_back(coupling_variable);
         clauses.push_back(last_clause);
+        return clauses;
+    }
+};
+
+class XorCoupling : public CouplingStrategy {
+public:
+    std::string generate_coupling_function(const std::vector<int>& output_variables) const override {
+        if (output_variables.empty()) return " 0 ";
+        std::string result = " ";
+        for (size_t i = 0; i < output_variables.size(); ++i) {
+            result += std::to_string(output_variables[i]);
+            if (i < output_variables.size() - 1) result += " ⊕ ";
+        }
+        result += " ";
+        return result;
+    }
+
+    std::vector<std::vector<int>> to_cnf(const std::vector<int>& output_variables, int coupling_variable) const override {
+        int n = output_variables.size();
+        std::vector<std::vector<int>> clauses;
+        for (int i = 0; i < (1 << (n + 1)); ++i) {
+            int ones = 0;
+            for (int j = 0; j <= n; ++j) if ((i >> j) & 1) ones++;
+            if (ones % 2 != 0) {
+                std::vector<int> clause;
+                if (i & 1) clause.push_back(-coupling_variable);
+                else clause.push_back(coupling_variable);
+                for (int j = 0; j < n; ++j) {
+                    if ((i >> (j + 1)) & 1) clause.push_back(-output_variables[j]);
+                    else clause.push_back(output_variables[j]);
+                }
+                clauses.push_back(clause);
+            }
+        }
         return clauses;
     }
 };
