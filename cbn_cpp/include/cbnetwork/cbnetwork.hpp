@@ -69,6 +69,11 @@ public:
                                                                 const std::vector<std::pair<int, int>>& candidate_pairs,
                                                                 const std::map<int, std::tuple<int, int, int>>& d_local_attractors);
 
+    static std::vector<std::vector<int8_t>> filter_compatible_pairs_kernel(
+        const std::vector<std::vector<int>>& fields,
+        const std::vector<std::vector<int>>& candidates,
+        const std::vector<int>& attr_to_network);
+
     void mount_stable_attractor_fields_parallel_chunks(int num_cpus = 0);
 
     std::vector<std::shared_ptr<LocalAttractor>> get_attractors_by_input_signal_value(int index_variable_signal, int signal_value);
@@ -93,6 +98,8 @@ public:
     void show_attractor_fields() const;
 
     void save_attractor_fields_to_json(const std::string& filepath);
+    void save_network_to_json(const std::string& filepath) const;
+    double calculate_canalization_density() const;
 
     static std::shared_ptr<CBN> cbn_generator(
         int v_topology,

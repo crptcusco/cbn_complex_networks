@@ -27,3 +27,6 @@ target_link_libraries(scientific_benchmarking cbn_core OpenMP::OpenMP_CXX)
 
 add_executable(test_parity examples/test_parity.cpp)
 target_link_libraries(test_parity cbn_core OpenMP::OpenMP_CXX)
+
+add_executable(strategic_campaign examples/strategic_campaign.cpp)
+target_link_libraries(strategic_campaign cbn_core OpenMP::OpenMP_CXX)
