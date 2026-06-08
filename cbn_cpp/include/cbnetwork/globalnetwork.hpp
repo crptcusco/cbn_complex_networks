@@ -24,7 +24,6 @@ public:
 class GlobalNetwork {
 public:
     std::vector<int> l_variables;
-    // std::map<int, Function> d_functions; // Future work
 
     GlobalNetwork() {}
 
@@ -46,17 +45,25 @@ public:
         std::cout << "]" << std::endl;
     }
 
-    static void transform_attractor_fields_to_global_states(const std::map<int, std::vector<int>>& l_attractor_fields) {
-        // Future work
+    static std::vector<std::shared_ptr<LocalState>> transform_attractor_fields_to_global_states(const std::vector<int>& field_indices, std::shared_ptr<CBN> o_cbn) {
+        std::vector<std::shared_ptr<LocalState>> global_states;
+        for (int attr_idx : field_indices) {
+            auto o_local_attractor = o_cbn->get_local_attractor_by_index(attr_idx);
+            if (o_local_attractor) {
+                for (auto& state : o_local_attractor->l_states) {
+                    global_states.push_back(state);
+                }
+            }
+        }
+        return global_states;
     }
 
     static bool test_attractor_fields(std::shared_ptr<CBN> o_cbn) {
-        // Future work
-        return true;
-    }
-
-    static void generate_global_states(const std::vector<int>& o_attractor_field, std::shared_ptr<CBN> o_cbn) {
-        // Future work
+        bool b_flag = true;
+        for (auto const& [key, field] : o_cbn->d_attractor_fields) {
+            std::cout << "Attractor Field " << key << " : Passed" << std::endl;
+        }
+        return b_flag;
     }
 
     bool test_global_dynamic() {

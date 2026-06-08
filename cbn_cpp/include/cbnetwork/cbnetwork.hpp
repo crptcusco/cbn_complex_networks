@@ -11,6 +11,7 @@
 #include "cbnetwork/directededge.hpp"
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/globalscene.hpp"
+#include "cbnetwork/coupling.hpp"
 
 namespace cbnetwork {
 
@@ -88,17 +89,15 @@ public:
         int n_input_variables,
         int n_output_variables,
         int n_max_of_clauses = 2,
-        int n_max_of_literals = 3);
+        int n_max_of_literals = 3,
+        int n_edges = -1,
+        std::shared_ptr<CouplingStrategy> coupling_strategy = std::make_shared<OrCoupling>());
 
     void _assign_global_indices_to_attractors();
     std::vector<std::string> _generate_local_scenes(std::shared_ptr<LocalNetwork> o_local_network);
 
-    // Turbo Kernels
-    static std::vector<std::vector<int8_t>> filter_compatible_pairs_kernel(
-        const std::vector<std::vector<int>>& fields,
-        const std::vector<std::vector<int>>& candidates,
-        const std::vector<int>& attr_to_network
-    );
+    static std::vector<std::shared_ptr<DirectedEdge>> find_output_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges);
+    static std::vector<std::shared_ptr<DirectedEdge>> find_input_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges);
 };
 
 } // namespace cbnetwork

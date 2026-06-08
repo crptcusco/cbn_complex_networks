@@ -227,31 +227,6 @@ void CBN::find_local_attractors_parallel_with_weights() {
     CustomText::make_sub_sub_title("END FIND LOCAL ATTRACTORS WEIGHTED");
 }
 
-void CBN::find_local_attractors_brute_force_turbo() {
-    CustomText::make_title("FIND LOCAL ATTRACTORS TURBO");
-    #pragma omp parallel for
-    for (int i = 0; i < (int)l_local_networks.size(); ++i) {
-        auto& net = l_local_networks[i];
-        auto scenes = _generate_local_scenes(net);
-        LocalNetwork::find_local_attractors_brute_force_turbo(net, scenes);
-        process_kind_signal(net);
-    }
-    _assign_global_indices_to_attractors();
-    generate_attractor_dictionary();
-    CustomText::make_sub_sub_title("END FIND LOCAL ATTRACTORS TURBO");
-}
-
-void CBN::_assign_global_indices_to_attractors() {
-    int i_attractor = 1;
-    for (auto& net : l_local_networks) {
-        for (auto& scene : net->local_scenes) {
-            for (auto& attractor : scene->l_attractors) {
-                attractor->g_index = i_attractor++;
-            }
-        }
-    }
-}
-
 void CBN::generate_attractor_dictionary() {
     d_local_attractors.clear();
     d_local_attractors_ptr.clear();
@@ -417,6 +392,31 @@ void CBN::mount_stable_attractor_fields_parallel_chunks() {
     CustomText::make_sub_sub_title("END MOUNT ATTRACTOR FIELDS CHUNKS");
 }
 
+void CBN::find_compatible_pairs_parallel() {
+    CustomText::make_title("FIND COMPATIBLE ATTRACTOR PAIRS (PARALLEL)");
+    #pragma omp parallel for
+    for (int i = 0; i < (int)l_directed_edges.size(); ++i) {
+        auto& edge = l_directed_edges.at(i);
+        if (!edge) continue;
+        for (int val : {0, 1}) {
+            edge->d_comp_pairs_attractors_by_value[val].clear();
+            auto dst_attractors = get_attractors_by_input_signal_value(edge->index_variable, val);
+
+            auto& src_attractors = edge->d_out_value_to_attractor[val];
+            edge->d_comp_pairs_attractors_by_value[val].reserve(src_attractors.size() * dst_attractors.size());
+
+            for (auto& src_attr : src_attractors) {
+                if (!src_attr) continue;
+                for (auto& dst_attr : dst_attractors) {
+                    if (!dst_attr) continue;
+                    edge->d_comp_pairs_attractors_by_value[val].push_back({src_attr->g_index, dst_attr->g_index});
+                }
+            }
+        }
+    }
+    CustomText::make_sub_sub_title("END FIND COMPATIBLE ATTRACTOR PAIRS (PARALLEL)");
+}
+
 void CBN::mount_stable_attractor_fields() {
     std::vector<std::vector<int>> fields;
     for (auto& edge : l_directed_edges) {
@@ -435,9 +435,10 @@ void CBN::mount_stable_attractor_fields() {
     while (merged) {
         merged = false;
         for (size_t i = 0; i < fields.size(); ++i) {
-            if (fields[i].empty()) continue;
+            if (fields.at(i).empty()) continue;
             for (size_t j = i + 1; j < fields.size(); ++j) {
-                if (fields[j].empty()) continue;
+                if (fields.at(j).empty()) continue;
+
                 bool share = false;
                 auto& f1 = fields[i]; auto& f2 = fields[j];
                 size_t p1 = 0, p2 = 0;
@@ -449,7 +450,9 @@ void CBN::mount_stable_attractor_fields() {
                     f1.insert(f1.end(), f2.begin(), f2.end());
                     std::sort(f1.begin(), f1.end());
                     f1.erase(std::unique(f1.begin(), f1.end()), f1.end());
-                    f2.clear(); merged = true; break;
+                    f2.clear();
+                    merged = true;
+                    break;
                 }
             }
             if (merged) break;
@@ -497,9 +500,79 @@ void CBN::mount_stable_attractor_fields_turbo() {
         }
         current_fields = next_fields;
     }
-    d_attractor_fields.clear();
-    for (size_t i = 0; i < current_fields.size(); ++i) d_attractor_fields[i+1] = current_fields[i];
-    CustomText::make_sub_sub_title("END MOUNT ATTRACTOR FIELDS TURBO");
+    std::cout << "Total compatible attractor pairs: " << total_pairs << std::endl;
+}
+
+void CBN::show_stable_attractor_fields() const {
+    CustomText::print_duplex_line();
+    std::cout << "Show the list of attractor fields" << std::endl;
+    std::cout << "Number Stable Attractor Fields: " << d_attractor_fields.size() << std::endl;
+    for (auto const& [key, field] : d_attractor_fields) {
+        CustomText::print_simple_line();
+        std::cout << key << ": [";
+        for (size_t i = 0; i < field.size(); ++i) {
+            std::cout << field.at(i) << (i == field.size() - 1 ? "" : ", ");
+        }
+        std::cout << "]" << std::endl;
+    }
+}
+
+void CBN::show_directed_edges() const {
+    CustomText::print_duplex_line();
+    std::cout << "SHOW THE DIRECTED EDGES OF THE CBN" << std::endl;
+    for (auto& edge : l_directed_edges) {
+        if (edge) edge->show();
+    }
+}
+
+void CBN::show_coupled_signals_kind() const {
+    CustomText::print_duplex_line();
+    std::cout << "SHOW THE COUPLED SIGNALS KINDS" << std::endl;
+    int n_restricted = 0;
+    for (auto& edge : l_directed_edges) {
+        if (!edge) continue;
+        std::cout << "SIGNAL: " << edge->index_variable
+                  << ", RELATION: " << edge->output_local_network << " -> " << edge->input_local_network
+                  << ", KIND: " << edge->kind_signal << std::endl;
+        if (edge->kind_signal == 1) n_restricted++;
+    }
+    std::cout << "Number of restricted signals: " << n_restricted << std::endl;
+}
+
+void CBN::show_description() const {
+    CustomText::make_title("CBN description");
+    std::string nets = "Local Networks: [";
+    for(size_t i=0; i<l_local_networks.size(); ++i) nets += std::to_string(l_local_networks[i]->index) + (i==l_local_networks.size()-1?"":", ");
+    nets += "]";
+    CustomText::make_sub_title(nets);
+    for (auto& net : l_local_networks) if(net) net->show();
+    CustomText::make_sub_title("Directed edges: " + nets);
+}
+
+void CBN::show_global_scenes() const {
+    CustomText::make_sub_title("LIST OF GLOBAL SCENES");
+    for (auto& scene : l_global_scenes) if(scene) scene->show();
+}
+
+void CBN::show_resume() const {
+    CustomText::make_title("CBN Detailed Resume");
+    CustomText::make_sub_sub_title("Main Characteristics");
+    CustomText::print_simple_line();
+    std::cout << "Number of local networks: " << l_local_networks.size() << std::endl;
+    std::cout << "Topology Type: " << (o_global_topology ? std::to_string(o_global_topology->v_topology) : "N/A") << std::endl;
+
+    CustomText::make_sub_sub_title("Indicators");
+    CustomText::print_simple_line();
+    std::cout << "Number of local attractors: " << get_n_local_attractors() << std::endl;
+    std::cout << "Number of attractor fields: " << get_n_attractor_fields() << std::endl;
+    CustomText::print_simple_line();
+}
+
+void CBN::show_local_attractors_dictionary() const {
+    CustomText::make_title("Global Dictionary of Local Attractors");
+    for (auto const& [key, val] : d_local_attractors) {
+        std::cout << key << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
+    }
 }
 
 std::vector<std::vector<int8_t>> CBN::filter_compatible_pairs_kernel(
@@ -511,18 +584,12 @@ std::vector<std::vector<int8_t>> CBN::filter_compatible_pairs_kernel(
     size_t n_cands = candidates.size();
     std::vector<std::vector<int8_t>> result(n_fields, std::vector<int8_t>(n_cands, 0));
 
-    #pragma omp parallel for
-    for (int i = 0; i < (int)n_fields; ++i) {
-        std::set<int> field_nets;
-        for (int a : fields[i]) field_nets.insert(attr_to_network[a]);
-
-        for (size_t j = 0; j < n_cands; ++j) {
-            int double_check = 0;
-            for (int ca : candidates[j]) {
-                int cn = attr_to_network[ca];
-                if (field_nets.count(cn)) {
-                    if (std::find(fields[i].begin(), fields[i].end(), ca) != fields[i].end()) double_check++;
-                } else double_check++;
+        for (int i_attr : field) {
+            if (d_local_attractors.count(i_attr)) {
+                auto val = d_local_attractors.at(i_attr);
+                std::cout << i_attr << " -> (" << std::get<0>(val) << ", " << std::get<1>(val) << ", " << std::get<2>(val) << ")" << std::endl;
+                auto o_attr = const_cast<CBN*>(this)->get_local_attractor_by_index(i_attr);
+                if (o_attr) o_attr->show();
             }
             if (double_check == 2) result[i][j] = 1;
         }
@@ -530,43 +597,19 @@ std::vector<std::vector<int8_t>> CBN::filter_compatible_pairs_kernel(
     return result;
 }
 
-void CBN::generate_global_scenes() {
-    std::vector<int> l_edges_indexes;
-    for (const auto& edge : l_directed_edges) l_edges_indexes.push_back(edge->index_variable);
-    int n = l_edges_indexes.size();
-    l_global_scenes.clear();
-    for (int i = 0; i < (1 << n); ++i) {
-        std::vector<int> combination;
-        for (int bit = 0; bit < n; ++bit) combination.push_back((i >> (n - 1 - bit)) & 1);
-        l_global_scenes.push_back(std::make_shared<GlobalScene>(l_edges_indexes, combination));
-    }
-}
-
-void CBN::count_fields_by_global_scenes() {
-    d_global_scenes_count.clear();
-    for (auto const& [key, field] : d_attractor_fields) {
-        std::map<int, int> d_var_val;
-        for (int i_attr : field) {
-            auto o_attr = get_local_attractor_by_index(i_attr);
-            if (o_attr) {
-                for (size_t i = 0; i < o_attr->relation_index.size(); ++i) {
-                    d_var_val[o_attr->relation_index[i]] = o_attr->local_scene[i] - '0';
-                }
-            }
-        }
-        std::string combo = "";
-        for (auto const& [var, val] : d_var_val) combo += std::to_string(val);
-        d_global_scenes_count[combo]++;
-    }
-}
-
 std::shared_ptr<CBN> CBN::cbn_generator(
-    int v_topology, int n_local_networks, int n_vars_network,
-    int n_input_variables, int n_output_variables,
-    int n_max_of_clauses, int n_max_of_literals) {
+    int v_topology,
+    int n_local_networks,
+    int n_vars_network,
+    int n_input_variables,
+    int n_output_variables,
+    int n_max_of_clauses,
+    int n_max_of_literals,
+    int n_edges,
+    std::shared_ptr<CouplingStrategy> coupling_strategy) {
 
-    auto topo = GlobalTopology::generate_sample_topology(v_topology, n_local_networks);
-    LocalNetworkTemplate temp(n_vars_network, n_input_variables, n_output_variables, n_max_of_clauses, n_max_of_literals, v_topology);
+    auto o_topo = GlobalTopology::generate_sample_topology(v_topology, n_local_networks, n_edges);
+    LocalNetworkTemplate o_template(n_vars_network, n_input_variables, n_output_variables, n_max_of_clauses, n_max_of_literals, v_topology);
 
     std::vector<std::shared_ptr<LocalNetwork>> networks;
     int var_cont = 1;
@@ -583,13 +626,24 @@ std::shared_ptr<CBN> CBN::cbn_generator(
     for (auto& rel : topo->l_edges) {
         auto& out_net = networks[rel.first - 1];
         std::vector<int> out_vars;
-        for (int p : temp.l_output_var_indexes) out_vars.push_back(out_net->internal_variables[p - 1]);
-        edges.push_back(std::make_shared<DirectedEdge>(edge_idx++, last_var++, rel.second, rel.first, out_vars, " OR "));
+        auto& out_net = networks.at(out_net_idx - 1);
+        for (int pos : o_template.l_output_var_indexes) {
+            out_vars.push_back(out_net->internal_variables.at(pos - 1));
+        }
+
+        std::string coup_func = coupling_strategy->generate_coupling_function(out_vars);
+        auto edge = std::make_shared<DirectedEdge>(i_directed_edge++, i_last_variable, in_net_idx, out_net_idx, out_vars, coup_func);
+
+        // Add coupling logic to source network
+        auto coupling_cnf = coupling_strategy->to_cnf(out_vars, i_last_variable);
+        out_net->descriptive_function_variables.push_back(std::make_shared<InternalVariable>(i_last_variable, coupling_cnf));
+
+        i_last_variable++;
+        edges.push_back(edge);
     }
 
     for (auto& net : networks) {
-        std::vector<std::shared_ptr<DirectedEdge>> inputs;
-        for (auto& e : edges) if (e->input_local_network == net->index) inputs.push_back(e);
+        auto inputs = find_input_edges_by_network_index(net->index, edges);
         net->process_input_signals(inputs);
 
         for (int ivar : net->internal_variables) {
@@ -691,6 +745,18 @@ void CBN::save_attractor_fields_to_json(const std::string& filepath) {
     }
     std::ofstream out(filepath);
     out << j_fields.dump(4) << std::endl;
+}
+
+std::vector<std::shared_ptr<DirectedEdge>> CBN::find_output_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges) {
+    std::vector<std::shared_ptr<DirectedEdge>> result;
+    for(auto& e : edges) if(e->output_local_network == index) result.push_back(e);
+    return result;
+}
+
+std::vector<std::shared_ptr<DirectedEdge>> CBN::find_input_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges) {
+    std::vector<std::shared_ptr<DirectedEdge>> result;
+    for(auto& e : edges) if(e->input_local_network == index) result.push_back(e);
+    return result;
 }
 
 } // namespace cbnetwork
