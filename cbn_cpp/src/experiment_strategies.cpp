@@ -12,29 +12,64 @@ namespace cbnetwork {
 
 using namespace std::chrono;
 
-/**
- * Utility to track peak memory usage.
- */
 static long get_max_rss() {
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
     return usage.ru_maxrss;
 }
 
-// ----------------------------------------------------------------------------
-// 1. TRADITIONAL EXPERIMENT (Strict Baseline)
-// ----------------------------------------------------------------------------
+// Memory-efficient vector merge
+static std::vector<int> merge_two_sorted_vectors(const std::vector<int>& v1, const std::vector<int>& v2) {
+    std::vector<int> res;
+    res.reserve(v1.size() + v2.size());
+    std::set_union(v1.begin(), v1.end(), v2.begin(), v2.end(), std::back_inserter(res));
+    return res;
+}
+
+static std::vector<std::vector<int>> merge_field_lists_sequentially(std::vector<std::vector<int>> fields) {
+    if (fields.empty()) return {};
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (fields.at(i).empty()) continue;
+            for (size_t j = i + 1; j < fields.size(); ++j) {
+                if (fields.at(j).empty()) continue;
+
+                auto& f1 = fields.at(i);
+                auto& f2 = fields.at(j);
+                bool share = false;
+                size_t p1 = 0, p2 = 0;
+                while (p1 < f1.size() && p2 < f2.size()) {
+                    if (f1[p1] == f2[p2]) { share = true; break; }
+                    if (f1[p1] < f2[p2]) p1++; else p2++;
+                }
+
+                if (share) {
+                    f1.insert(f1.end(), f2.begin(), f2.end());
+                    std::sort(f1.begin(), f1.end());
+                    f1.erase(std::unique(f1.begin(), f1.end()), f1.end());
+                    f2.clear(); // Sentinel
+                    merged = true;
+                    break;
+                }
+            }
+            if (merged) break;
+        }
+    }
+    std::vector<std::vector<int>> final_res;
+    for (auto& f : fields) if (!f.empty()) final_res.push_back(f);
+    return final_res;
+}
+
+// 1. TRADITIONAL EXPERIMENT
 ExperimentResults TraditionalExperiment::run(std::shared_ptr<CBN> cbn) {
     ExperimentResults res;
     res.strategy_name = "Traditional";
-
-    // Force strictly single-threaded execution for this trial
     int prev_threads = omp_get_max_threads();
     omp_set_num_threads(1);
-
     auto start_total = high_resolution_clock::now();
 
-    // Phase 1: Sequential Attractors
     auto start1 = high_resolution_clock::now();
     for (auto& net : cbn->l_local_networks) {
         if (net->local_scenes.empty()) {
@@ -48,13 +83,11 @@ ExperimentResults TraditionalExperiment::run(std::shared_ptr<CBN> cbn) {
     auto end1 = high_resolution_clock::now();
     res.p1_ms = duration<double, std::milli>(end1 - start1).count();
 
-    // Phase 2: Sequential Compatible Pairs
     auto start2 = high_resolution_clock::now();
     cbn->find_compatible_pairs();
     auto end2 = high_resolution_clock::now();
     res.p2_ms = duration<double, std::milli>(end2 - start2).count();
 
-    // Phase 3: Sequential Attractor Fields
     auto start3 = high_resolution_clock::now();
     cbn->mount_stable_attractor_fields();
     auto end3 = high_resolution_clock::now();
@@ -65,22 +98,16 @@ ExperimentResults TraditionalExperiment::run(std::shared_ptr<CBN> cbn) {
     res.max_rss_kb = get_max_rss();
     res.global_attractors_count = cbn->d_attractor_fields.size();
     res.success = true;
-
-    // Restore previous thread count
     omp_set_num_threads(prev_threads);
     return res;
 }
 
-// ----------------------------------------------------------------------------
-// 2. SIMPLE PARALLEL EXPERIMENT (Flat OpenMP)
-// ----------------------------------------------------------------------------
+// 2. SIMPLE PARALLEL EXPERIMENT
 ExperimentResults SimpleParallelExperiment::run(std::shared_ptr<CBN> cbn) {
     ExperimentResults res;
     res.strategy_name = "SimpleParallel";
-
     auto start_total = high_resolution_clock::now();
 
-    // Phase 1: Flat Parallel Attractors
     auto start1 = high_resolution_clock::now();
     #pragma omp parallel for
     for (int i = 0; i < (int)cbn->l_local_networks.size(); ++i) {
@@ -96,7 +123,6 @@ ExperimentResults SimpleParallelExperiment::run(std::shared_ptr<CBN> cbn) {
     auto end1 = high_resolution_clock::now();
     res.p1_ms = duration<double, std::milli>(end1 - start1).count();
 
-    // Phase 2: Flat Parallel Compatible Pairs
     auto start2 = high_resolution_clock::now();
     #pragma omp parallel for
     for (int i = 0; i < (int)cbn->l_directed_edges.size(); ++i) {
@@ -116,13 +142,14 @@ ExperimentResults SimpleParallelExperiment::run(std::shared_ptr<CBN> cbn) {
     auto end2 = high_resolution_clock::now();
     res.p2_ms = duration<double, std::milli>(end2 - start2).count();
 
-    // Phase 3: Flat Parallel Fields (Iterative merge with lock-free check)
     auto start3 = high_resolution_clock::now();
-    std::vector<std::set<int>> fields;
+    std::vector<std::vector<int>> fields;
     for (auto& edge : cbn->l_directed_edges) {
         for (int val : {0, 1}) {
             for (auto& pair : edge->d_comp_pairs_attractors_by_value[val]) {
-                fields.push_back({pair.first, pair.second});
+                std::vector<int> f = {pair.first, pair.second};
+                std::sort(f.begin(), f.end());
+                fields.push_back(f);
             }
         }
     }
@@ -132,19 +159,28 @@ ExperimentResults SimpleParallelExperiment::run(std::shared_ptr<CBN> cbn) {
         while (global_merged) {
             global_merged = false;
             for (size_t i = 0; i < fields.size(); ++i) {
+                if (fields.at(i).empty()) continue;
                 #pragma omp parallel for schedule(dynamic) shared(global_merged)
                 for (int j = i + 1; j < (int)fields.size(); ++j) {
-                    if (global_merged) continue;
+                    if (global_merged || fields.at(j).empty()) continue;
+
+                    auto& f1 = fields.at(i);
+                    auto& f2 = fields.at(j);
                     bool share = false;
-                    for (int attr : fields.at(i)) {
-                        if (fields.at(j).count(attr)) { share = true; break; }
+                    size_t p1 = 0, p2 = 0;
+                    while (p1 < f1.size() && p2 < f2.size()) {
+                        if (f1[p1] == f2[p2]) { share = true; break; }
+                        if (f1[p1] < f2[p2]) p1++; else p2++;
                     }
+
                     if (share) {
                         #pragma omp critical
                         {
-                            if (!global_merged && i < fields.size() && j < (int)fields.size()) {
-                                fields.at(i).insert(fields.at(j).begin(), fields.at(j).end());
-                                fields.erase(fields.begin() + j);
+                            if (!global_merged && !fields.at(j).empty()) {
+                                f1.insert(f1.end(), f2.begin(), f2.end());
+                                std::sort(f1.begin(), f1.end());
+                                f1.erase(std::unique(f1.begin(), f1.end()), f1.end());
+                                f2.clear();
                                 global_merged = true;
                             }
                         }
@@ -154,13 +190,11 @@ ExperimentResults SimpleParallelExperiment::run(std::shared_ptr<CBN> cbn) {
             }
         }
         cbn->d_attractor_fields.clear();
-        for (size_t i = 0; i < fields.size(); ++i) {
-            cbn->d_attractor_fields[i + 1] = std::vector<int>(fields.at(i).begin(), fields.at(i).end());
-        }
+        int count = 1;
+        for (auto& f : fields) if (!f.empty()) cbn->d_attractor_fields[count++] = f;
     }
     auto end3 = high_resolution_clock::now();
     res.p3_ms = duration<double, std::milli>(end3 - start3).count();
-
     auto end_total = high_resolution_clock::now();
     res.total_ms = duration<double, std::milli>(end_total - start_total).count();
     res.max_rss_kb = get_max_rss();
@@ -169,39 +203,29 @@ ExperimentResults SimpleParallelExperiment::run(std::shared_ptr<CBN> cbn) {
     return res;
 }
 
-// ----------------------------------------------------------------------------
-// 3. ADVANCED PARALLEL EXPERIMENT (Heuristic Balance & Asynchronous)
-// ----------------------------------------------------------------------------
+// 3. ADVANCED PARALLEL EXPERIMENT
 ExperimentResults AdvancedParallelExperiment::run(std::shared_ptr<CBN> cbn) {
     ExperimentResults res;
     res.strategy_name = "AdvancedParallel";
-
     auto start_total = high_resolution_clock::now();
 
-    // Phase 1: Heuristic Bucket Balancing (V * 2^C)
     auto start1 = high_resolution_clock::now();
-    struct WeightedNet {
-        long weight;
-        std::shared_ptr<LocalNetwork> net;
-    };
+    struct WeightedNet { long weight; std::shared_ptr<LocalNetwork> net; };
     std::vector<WeightedNet> weighted_nets;
     for (auto& net : cbn->l_local_networks) {
         long w = (long)net->internal_variables.size() * (1L << net->input_signals.size());
         weighted_nets.push_back({w, net});
     }
     std::sort(weighted_nets.begin(), weighted_nets.end(), [](const auto& a, const auto& b){ return a.weight > b.weight; });
-
     int num_threads = omp_get_max_threads();
     std::vector<std::vector<std::shared_ptr<LocalNetwork>>> buckets(num_threads);
     std::vector<long> bucket_weights(num_threads, 0);
     for (auto& wn : weighted_nets) {
-        int best_idx = 0;
-        long min_w = bucket_weights[0];
+        int best_idx = 0; long min_w = bucket_weights[0];
         for(int i=1; i<num_threads; ++i) { if(bucket_weights[i] < min_w) { min_w=bucket_weights[i]; best_idx=i; } }
         buckets[best_idx].push_back(wn.net);
         bucket_weights[best_idx] += wn.weight;
     }
-
     #pragma omp parallel
     {
         int tid = omp_get_thread_num();
@@ -220,7 +244,6 @@ ExperimentResults AdvancedParallelExperiment::run(std::shared_ptr<CBN> cbn) {
     auto end1 = high_resolution_clock::now();
     res.p1_ms = duration<double, std::milli>(end1 - start1).count();
 
-    // Phase 2: Variable-Indexed Map (O(1) equivalent)
     auto start2 = high_resolution_clock::now();
     std::map<int, std::vector<int>> var_to_gindices[2];
     for (auto& net : cbn->l_local_networks) {
@@ -229,14 +252,11 @@ ExperimentResults AdvancedParallelExperiment::run(std::shared_ptr<CBN> cbn) {
                 int var_idx = scene->l_index_signals.at(i);
                 int val = scene->l_values.at(0).at(i) - '0';
                 if (val == 0 || val == 1) {
-                    for (auto& attr : scene->l_attractors) {
-                        var_to_gindices[val][var_idx].push_back(attr->g_index);
-                    }
+                    for (auto& attr : scene->l_attractors) var_to_gindices[val][var_idx].push_back(attr->g_index);
                 }
             }
         }
     }
-
     #pragma omp parallel for
     for (int i = 0; i < (int)cbn->l_directed_edges.size(); ++i) {
         auto& edge = cbn->l_directed_edges.at(i);
@@ -246,70 +266,46 @@ ExperimentResults AdvancedParallelExperiment::run(std::shared_ptr<CBN> cbn) {
             auto& src_attractors = edge->d_out_value_to_attractor[val];
             edge->d_comp_pairs_attractors_by_value[val].reserve(src_attractors.size() * dst_g_indices.size());
             for (auto& src_attr : src_attractors) {
-                for (int dst_g_idx : dst_g_indices) {
-                    edge->d_comp_pairs_attractors_by_value[val].push_back({src_attr->g_index, dst_g_idx});
-                }
+                for (int dst_g_idx : dst_g_indices) edge->d_comp_pairs_attractors_by_value[val].push_back({src_attr->g_index, dst_g_idx});
             }
         }
     }
     auto end2 = high_resolution_clock::now();
     res.p2_ms = duration<double, std::milli>(end2 - start2).count();
 
-    // Phase 3: Task-Based Parallelism (Binary Reduction Tree with std::async)
     auto start3 = high_resolution_clock::now();
-    std::vector<std::set<int>> initial_fields;
+    std::vector<std::vector<int>> initial_fields;
     for (auto& edge : cbn->l_directed_edges) {
         for (int val : {0, 1}) {
             for (auto& pair : edge->d_comp_pairs_attractors_by_value[val]) {
-                initial_fields.push_back({pair.first, pair.second});
+                std::vector<int> f = {pair.first, pair.second};
+                std::sort(f.begin(), f.end());
+                initial_fields.push_back(f);
             }
         }
     }
 
-    std::function<std::vector<std::set<int>>(std::vector<std::set<int>>)> async_reduce;
-    async_reduce = [&](std::vector<std::set<int>> f_list) -> std::vector<std::set<int>> {
-        if (f_list.size() <= 20) {
-            bool merged = true;
-            while(merged) {
-                merged = false;
-                for(size_t i=0; i<f_list.size(); ++i) {
-                    for(size_t j=i+1; j<f_list.size(); ++j) {
-                        bool share = false;
-                        for(int a : f_list[i]) if(f_list[j].count(a)) { share=true; break; }
-                        if(share) { f_list[i].insert(f_list[j].begin(), f_list[j].end()); f_list.erase(f_list.begin()+j); merged=true; break; }
-                    }
-                    if(merged) break;
-                }
-            }
-            return f_list;
-        }
+    std::function<std::vector<std::vector<int>>(std::vector<std::vector<int>>)> async_reduce;
+    async_reduce = [&](std::vector<std::vector<int>> f_list) -> std::vector<std::vector<int>> {
+        if (f_list.size() <= 20) return merge_field_lists_sequentially(f_list);
         size_t mid = f_list.size() / 2;
-        auto left_f = std::async(std::launch::async, async_reduce, std::vector<std::set<int>>(f_list.begin(), f_list.begin()+mid));
-        auto right_res = async_reduce(std::vector<std::set<int>>(f_list.begin()+mid, f_list.end()));
+        auto left_f = std::async(std::launch::async, async_reduce, std::vector<std::vector<int>>(f_list.begin(), f_list.begin()+mid));
+        auto right_res = async_reduce(std::vector<std::vector<int>>(f_list.begin()+mid, f_list.end()));
         auto left_res = left_f.get();
-        for(auto& rf : right_res) {
-            bool fm = false;
-            for(auto& lf : left_res) {
-                bool sh = false;
-                for(int a : rf) if(lf.count(a)) { sh=true; break; }
-                if(sh) { lf.insert(rf.begin(), rf.end()); fm=true; break; }
-            }
-            if(!fm) left_res.push_back(rf);
-        }
-        return left_res;
+        // Merge chunks
+        std::vector<std::vector<int>> combined = left_res;
+        combined.insert(combined.end(), right_res.begin(), right_res.end());
+        return merge_field_lists_sequentially(combined);
     };
 
     if(!initial_fields.empty()) {
         auto final_fields = async_reduce(initial_fields);
         cbn->d_attractor_fields.clear();
-        for (size_t i = 0; i < final_fields.size(); ++i) {
-            cbn->d_attractor_fields[i + 1] = std::vector<int>(final_fields.at(i).begin(), final_fields.at(i).end());
-        }
+        int count = 1;
+        for (auto& f : final_fields) cbn->d_attractor_fields[count++] = f;
     }
-
     auto end3 = high_resolution_clock::now();
     res.p3_ms = duration<double, std::milli>(end3 - start3).count();
-
     auto end_total = high_resolution_clock::now();
     res.total_ms = duration<double, std::milli>(end_total - start_total).count();
     res.max_rss_kb = get_max_rss();
