@@ -59,6 +59,18 @@ public:
     void generate_global_scenes();
     void count_fields_by_global_scenes();
 
+    static bool evaluate_pair(const std::vector<int>& base_pairs,
+                             const std::pair<int, int>& candidate_pair,
+                             const std::map<int, std::tuple<int, int, int>>& d_local_attractors);
+    static std::vector<std::vector<int>> cartesian_product_mod(const std::vector<std::vector<int>>& base_pairs,
+                                                            const std::vector<std::pair<int, int>>& candidate_pairs,
+                                                            const std::map<int, std::tuple<int, int, int>>& d_local_attractors);
+    static std::vector<std::vector<int>> process_single_base_pair(const std::vector<int>& base_pair,
+                                                                const std::vector<std::pair<int, int>>& candidate_pairs,
+                                                                const std::map<int, std::tuple<int, int, int>>& d_local_attractors);
+
+    void mount_stable_attractor_fields_parallel_chunks(int num_cpus = 0);
+
     std::vector<std::shared_ptr<LocalAttractor>> get_attractors_by_input_signal_value(int index_variable_signal, int signal_value);
     std::shared_ptr<LocalAttractor> get_local_attractor_by_index(int i_attractor);
     std::shared_ptr<LocalNetwork> get_network_by_index(int index);

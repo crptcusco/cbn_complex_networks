@@ -3,6 +3,7 @@
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/internalvariable.hpp"
 #include "cbnetwork/customtext.hpp"
+#include "cbnetwork/coupling.hpp"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -640,6 +641,35 @@ std::shared_ptr<CBN> CBN::cbn_generator(
 
         i_last_variable++;
         edges.push_back(edge);
+    }
+
+    // Integrate the CNF for the coupling logic
+    // In Python: C <=> (V1 | V2 ...)
+    OrCoupling or_strategy;
+    for (auto& edge : edges) {
+        auto coupling_cnf = or_strategy.to_cnf(edge->l_output_variables, edge->index_variable);
+        auto coupling_variable = std::make_shared<InternalVariable>(edge->index_variable, coupling_cnf);
+
+        for (auto& net : networks) {
+            if (net->index == edge->output_local_network) {
+                // Add the variable index to the network's internal variables if it's not already there
+                if (std::find(net->internal_variables.begin(), net->internal_variables.end(), edge->index_variable) == net->internal_variables.end()) {
+                    net->internal_variables.push_back(edge->index_variable);
+                }
+                net->descriptive_function_variables.push_back(coupling_variable);
+                break;
+            }
+        }
+    }
+
+    // Process output signals to populate the output_signals list of each network
+    for (auto& edge : edges) {
+        for (auto& net : networks) {
+            if (net->index == edge->output_local_network) {
+                net->output_signals.push_back(edge);
+                break;
+            }
+        }
     }
 
     for (auto& net : networks) {
