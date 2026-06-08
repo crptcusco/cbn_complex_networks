@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <tuple>
 #include "cbnetwork/localnetwork.hpp"
 #include "cbnetwork/directededge.hpp"
 #include "cbnetwork/globaltopology.hpp"
@@ -33,15 +34,25 @@ public:
 
     void process_output_signals();
     bool update_network_by_index(std::shared_ptr<LocalNetwork> o_local_network_update);
+
     void find_local_attractors_sequential();
     void find_local_attractors_parallel();
+    void find_local_attractors_parallel_with_weights();
+    void find_local_attractors_brute_force_turbo();
+
     void find_compatible_pairs();
     void find_compatible_pairs_parallel();
+    void find_compatible_pairs_parallel_with_weights();
+    void find_compatible_pairs_turbo();
+
     void order_edges_by_compatibility();
     void order_edges_by_grade();
     void disorder_edges();
+
     void mount_stable_attractor_fields();
     void mount_stable_attractor_fields_parallel();
+    void mount_stable_attractor_fields_parallel_chunks();
+    void mount_stable_attractor_fields_turbo();
 
     void generate_attractor_dictionary();
     void process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network);
@@ -60,7 +71,6 @@ public:
     void show_local_attractors() const;
     void show_attractor_pairs() const;
     void show_stable_attractor_fields() const;
-
     void show_directed_edges() const;
     void show_coupled_signals_kind() const;
     void show_description() const;
