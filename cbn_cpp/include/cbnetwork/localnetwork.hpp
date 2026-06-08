@@ -40,7 +40,12 @@ public:
         std::shared_ptr<LocalNetwork> local_network,
         const std::vector<std::string>& local_scenes_strings = {});
 
-    static std::shared_ptr<LocalNetwork> find_local_attractors_turbo(
+    static std::vector<int> evaluate_all_states_turbo(
+        int num_vars,
+        const std::vector<std::vector<std::vector<int>>>& cnf_data,
+        const std::vector<int>& external_values);
+
+    static void find_local_attractors_brute_force_turbo(
         std::shared_ptr<LocalNetwork> local_network,
         const std::vector<std::string>& local_scenes_strings = {});
 };
