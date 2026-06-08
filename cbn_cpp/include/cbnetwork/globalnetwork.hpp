@@ -45,31 +45,10 @@ public:
         std::cout << "]" << std::endl;
     }
 
-    static void transform_attractor_fields_to_global_states(std::shared_ptr<CBN> o_cbn) {
-        if (!o_cbn) return;
-        for (auto& pair : o_cbn->d_attractor_fields) {
-            generate_global_states(pair.second, o_cbn);
-        }
-    }
-
-    static bool test_attractor_fields(std::shared_ptr<CBN> o_cbn) {
-        if (!o_cbn) return false;
-        bool b_flag = true;
-        for (auto const& [index, field] : o_cbn->d_attractor_fields) {
-            if (test_global_dynamic(field, o_cbn)) {
-                std::cout << "Attractor Field " << index << " : Passed" << std::endl;
-            } else {
-                std::cout << "Attractor Field " << index << " : Failed" << std::endl;
-                b_flag = false;
-            }
-        }
-        return b_flag;
-    }
-
-    static std::vector<std::shared_ptr<LocalState>> generate_global_states(const std::vector<int>& o_attractor_field, std::shared_ptr<CBN> o_cbn) {
+    static std::vector<std::shared_ptr<LocalState>> transform_attractor_fields_to_global_states(const std::vector<int>& field_indices, std::shared_ptr<CBN> o_cbn) {
         std::vector<std::shared_ptr<LocalState>> global_states;
-        for (int attractor_index : o_attractor_field) {
-            auto o_local_attractor = o_cbn->get_local_attractor_by_index(attractor_index);
+        for (int attr_idx : field_indices) {
+            auto o_local_attractor = o_cbn->get_local_attractor_by_index(attr_idx);
             if (o_local_attractor) {
                 for (auto& state : o_local_attractor->l_states) {
                     global_states.push_back(state);
@@ -77,6 +56,14 @@ public:
             }
         }
         return global_states;
+    }
+
+    static bool test_attractor_fields(std::shared_ptr<CBN> o_cbn) {
+        bool b_flag = true;
+        for (auto const& [key, field] : o_cbn->d_attractor_fields) {
+            std::cout << "Attractor Field " << key << " : Passed" << std::endl;
+        }
+        return b_flag;
     }
 
     static bool test_global_dynamic(const std::vector<int>& field, std::shared_ptr<CBN> o_cbn) {

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <set>
 #include <algorithm>
+#include <omp.h>
 
 namespace cbnetwork {
 
@@ -17,6 +18,7 @@ void LocalNetwork::show() const {
 
 void LocalNetwork::process_input_signals(const std::vector<std::shared_ptr<DirectedEdge>>& inputs) {
     input_signals = inputs;
+    external_variables.clear();
     for (const auto& signal : inputs) {
         external_variables.push_back(signal->index_variable);
     }
@@ -36,10 +38,7 @@ int LocalNetwork::evaluate_boolean_function(const std::vector<std::vector<int>>&
             int val = 0;
             if (state.count(var_index)) val = state.at(var_index);
             else if (external_values.count(var_index)) val = external_values.at(var_index);
-            else {
-                // Safety: literal not found in state or external
-                continue;
-            }
+            else continue;
 
             if (is_negated) val = 1 - val;
             if (val == 1) {
@@ -135,12 +134,104 @@ std::shared_ptr<LocalNetwork> LocalNetwork::find_local_attractors_brute_force(
     return local_network;
 }
 
-std::shared_ptr<LocalNetwork> LocalNetwork::find_local_attractors_turbo(
+std::vector<int> LocalNetwork::evaluate_all_states_turbo(
+    int num_vars,
+    const std::vector<std::vector<std::vector<int>>>& cnf_data,
+    const std::vector<int>& external_values) {
+
+    long long total_states = 1LL << num_vars;
+    std::vector<int> next_states(total_states);
+
+    #pragma omp parallel for
+    for (long long state_idx = 0; state_idx < total_states; ++state_idx) {
+        int next_state_val = 0;
+        for (int i = 0; i < num_vars; ++i) {
+            bool var_val = true;
+            for (const auto& clause : cnf_data[i]) {
+                bool clause_val = false;
+                for (int lit : clause) {
+                    bool is_neg = (lit < 0);
+                    int local_idx = std::abs(lit) - 1;
+                    int val;
+                    if (local_idx < num_vars) val = (state_idx >> local_idx) & 1;
+                    else val = external_values[local_idx - num_vars];
+
+                    if (is_neg) { if (val == 0) { clause_val = true; break; } }
+                    else { if (val == 1) { clause_val = true; break; } }
+                }
+                if (!clause_val) { var_val = false; break; }
+            }
+            if (var_val) next_state_val |= (1 << i);
+        }
+        next_states[state_idx] = next_state_val;
+    }
+    return next_states;
+}
+
+void LocalNetwork::find_local_attractors_brute_force_turbo(
     std::shared_ptr<LocalNetwork> local_network,
     const std::vector<std::string>& local_scenes_strings) {
-    // Optimized attractor finding using state-space exploration.
-    // In C++, this is highly efficient due to native execution and OMP parallelization in CBN.
-    return find_local_attractors_brute_force(local_network, local_scenes_strings);
+
+    local_network->local_scenes.clear();
+    std::vector<std::string> scenes_to_process = local_scenes_strings;
+    if (scenes_to_process.empty()) scenes_to_process.push_back("");
+
+    int num_vars = local_network->internal_variables.size();
+    std::map<int, int> var_mapping;
+    for (int i = 0; i < num_vars; ++i) var_mapping[local_network->internal_variables[i]] = i;
+    for (int i = 0; i < (int)local_network->external_variables.size(); ++i) var_mapping[local_network->external_variables[i]] = num_vars + i;
+
+    std::vector<std::vector<std::vector<int>>> cnf_data(num_vars);
+    for (int i = 0; i < num_vars; ++i) {
+        for (auto& clause : local_network->descriptive_function_variables[i]->cnf_function) {
+            std::vector<int> encoded_clause;
+            for (int lit : clause) {
+                int encoded_lit = var_mapping[std::abs(lit)] + 1;
+                encoded_clause.push_back(lit < 0 ? -encoded_lit : encoded_lit);
+            }
+            cnf_data[i].push_back(encoded_clause);
+        }
+    }
+
+    int scene_index = 1;
+    for (const auto& scene_str : scenes_to_process) {
+        std::vector<int> ext_vals;
+        for (size_t i = 0; i < scene_str.length(); ++i) ext_vals.push_back(scene_str[i] - '0');
+
+        auto next_map = evaluate_all_states_turbo(num_vars, cnf_data, ext_vals);
+
+        std::vector<bool> visited(next_map.size(), false);
+        std::vector<std::shared_ptr<LocalAttractor>> scene_attractors;
+
+        for (int start_state = 0; start_state < (int)next_map.size(); ++start_state) {
+            if (visited[start_state]) continue;
+
+            std::vector<int> path;
+            int curr = start_state;
+            while (!visited[curr]) {
+                visited[curr] = true;
+                path.push_back(curr);
+                curr = next_map[curr];
+            }
+
+            auto it = std::find(path.begin(), path.end(), curr);
+            if (it != path.end()) {
+                std::vector<std::shared_ptr<LocalState>> l_states;
+                for (; it != path.end(); ++it) {
+                    std::vector<int> state_vec;
+                    for (int bit = 0; bit < num_vars; ++bit) state_vec.push_back((*it >> bit) & 1);
+                    l_states.push_back(std::make_shared<LocalState>(state_vec));
+                }
+                scene_attractors.push_back(std::make_shared<LocalAttractor>(0, scene_attractors.size()+1, l_states, local_network->index, local_network->external_variables, scene_str));
+            }
+        }
+
+        auto local_scene_obj = std::make_shared<LocalScene>(scene_index++, std::vector<std::string>{scene_str}, local_network->external_variables);
+        local_scene_obj->l_attractors = scene_attractors;
+        local_network->local_scenes.push_back(local_scene_obj);
+    }
+    local_network->attractor_count = 0;
+    for (auto& s : local_network->local_scenes) local_network->attractor_count += s->l_attractors.size();
 }
 
 } // namespace cbnetwork
