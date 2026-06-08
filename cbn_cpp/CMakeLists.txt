@@ -30,3 +30,6 @@ target_link_libraries(test_parity cbn_core OpenMP::OpenMP_CXX)
 
 add_executable(strategic_campaign examples/strategic_campaign.cpp)
 target_link_libraries(strategic_campaign cbn_core OpenMP::OpenMP_CXX)
+
+add_executable(campaign_runner examples/campaign_runner.cpp)
+target_link_libraries(campaign_runner cbn_core OpenMP::OpenMP_CXX)

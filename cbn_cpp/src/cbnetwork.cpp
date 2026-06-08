@@ -501,17 +501,20 @@ std::vector<std::vector<int8_t>> CBN::filter_compatible_pairs_kernel(
     size_t n_cands = candidates.size();
     std::vector<std::vector<int8_t>> result(n_fields, std::vector<int8_t>(n_cands, 0));
 
+    int max_net = 0;
+    for (int net_idx : attr_to_network) if (net_idx > max_net) max_net = net_idx;
+
     #pragma omp parallel for
     for (int i = 0; i < (int)n_fields; ++i) {
+        std::vector<int> net_to_attr(max_net + 1, -1);
+        for (int attr : fields[i]) {
+            net_to_attr[attr_to_network[attr]] = attr;
+        }
         for (int j = 0; j < (int)n_cands; ++j) {
             bool compatible = true;
-            std::map<int, int> net_to_attr;
-            for (int attr : fields[i]) {
-                net_to_attr[attr_to_network[attr]] = attr;
-            }
             for (int attr : candidates[j]) {
                 int net = attr_to_network[attr];
-                if (net_to_attr.count(net) && net_to_attr[net] != attr) {
+                if (net_to_attr[net] != -1 && net_to_attr[net] != attr) {
                     compatible = false;
                     break;
                 }
