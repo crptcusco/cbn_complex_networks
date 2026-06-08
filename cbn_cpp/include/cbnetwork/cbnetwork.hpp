@@ -10,6 +10,7 @@
 #include "cbnetwork/directededge.hpp"
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/globalscene.hpp"
+#include "cbnetwork/coupling.hpp"
 
 namespace cbnetwork {
 
@@ -23,9 +24,6 @@ public:
     std::vector<std::shared_ptr<GlobalScene>> l_global_scenes;
     std::map<std::string, int> d_global_scenes_count;
     std::shared_ptr<GlobalTopology> o_global_topology;
-
-    std::vector<std::shared_ptr<GlobalScene>> l_global_scenes;
-    std::map<std::string, int> d_global_scenes_count;
 
     CBN(const std::vector<std::shared_ptr<LocalNetwork>>& networks,
         const std::vector<std::shared_ptr<DirectedEdge>>& edges)
@@ -72,9 +70,6 @@ public:
     void show_stable_attractor_fields_detailed() const;
     void show_attractor_fields() const;
 
-    void generate_global_scenes();
-    void count_fields_by_global_scenes();
-
     void save_attractor_fields_to_json(const std::string& filepath);
 
     static std::shared_ptr<CBN> cbn_generator(
@@ -84,10 +79,15 @@ public:
         int n_input_variables,
         int n_output_variables,
         int n_max_of_clauses = 2,
-        int n_max_of_literals = 3);
+        int n_max_of_literals = 3,
+        int n_edges = -1,
+        std::shared_ptr<CouplingStrategy> coupling_strategy = std::make_shared<OrCoupling>());
 
     void _assign_global_indices_to_attractors();
     std::vector<std::string> _generate_local_scenes(std::shared_ptr<LocalNetwork> o_local_network);
+
+    static std::vector<std::shared_ptr<DirectedEdge>> find_output_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges);
+    static std::vector<std::shared_ptr<DirectedEdge>> find_input_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges);
 };
 
 } // namespace cbnetwork
