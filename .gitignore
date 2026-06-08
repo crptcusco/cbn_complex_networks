@@ -1,0 +1,32 @@
+# --- Archivos de Compilación y Build ---
+# Ignoramos cualquier carpeta build creada durante el proceso
+build/
+bin/
+out/
+*.o
+*.so
+*.a
+*.dylib
+*.exe
+
+# --- Entorno de IDE (VSCode) ---
+.vscode/
+.history/
+*.code-workspace
+
+# --- Archivos Temporales de Sistema ---
+.DS_Store
+*.log
+*.tmp
+*.bak
+*~
+
+# --- Dependencias (si decides ignorarlas en el futuro) ---
+# Como usas nlohmann/json como header-only, no suele ser necesario
+# pero si añades librerías pesadas externas, es buena práctica ignorar sus carpetas build
+# de terceros aquí.
+
+# --- Archivos de configuracion personal ---
+# Si generas archivos de configuración locales que no quieres subir al repo:
+*.config
+*.local
