@@ -5,10 +5,10 @@
 #include <string>
 #include <map>
 #include <memory>
-#include <iostream>
-#include "cbnetwork/localscene.hpp"
 
 namespace cbnetwork {
+
+class LocalAttractor; // Forward declaration
 
 class DirectedEdge {
 public:
@@ -20,8 +20,8 @@ public:
     std::string coupling_function;
 
     std::map<std::string, std::string> true_table;
-    int kind_signal;
     std::map<int, std::string> d_kind_signal;
+    int kind_signal;
     std::map<int, std::vector<std::shared_ptr<LocalAttractor>>> d_out_value_to_attractor;
     std::map<int, std::vector<std::pair<int, int>>> d_comp_pairs_attractors_by_value;
 
@@ -31,8 +31,8 @@ public:
     void show() const;
     void show_short() const;
     std::pair<int, int> get_edge() const;
-    std::map<std::string, std::string> process_true_table();
 
+    std::map<std::string, std::string> process_true_table();
 };
 
 } // namespace cbnetwork

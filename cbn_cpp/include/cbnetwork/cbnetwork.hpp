@@ -6,10 +6,12 @@
 #include <map>
 #include <set>
 #include <string>
+#include <tuple>
 #include "cbnetwork/localnetwork.hpp"
 #include "cbnetwork/directededge.hpp"
 #include "cbnetwork/globaltopology.hpp"
 #include "cbnetwork/globalscene.hpp"
+#include "cbnetwork/coupling.hpp"
 
 namespace cbnetwork {
 
@@ -32,15 +34,25 @@ public:
 
     void process_output_signals();
     bool update_network_by_index(std::shared_ptr<LocalNetwork> o_local_network_update);
+
     void find_local_attractors_sequential();
     void find_local_attractors_parallel();
+    void find_local_attractors_parallel_with_weights();
+    void find_local_attractors_brute_force_turbo();
+
     void find_compatible_pairs();
     void find_compatible_pairs_parallel();
+    void find_compatible_pairs_parallel_with_weights();
+    void find_compatible_pairs_turbo();
+
     void order_edges_by_compatibility();
     void order_edges_by_grade();
     void disorder_edges();
+
     void mount_stable_attractor_fields();
     void mount_stable_attractor_fields_parallel();
+    void mount_stable_attractor_fields_parallel_chunks();
+    void mount_stable_attractor_fields_turbo();
 
     void generate_attractor_dictionary();
     void process_kind_signal(std::shared_ptr<LocalNetwork> o_local_network);
@@ -71,7 +83,6 @@ public:
     void show_local_attractors() const;
     void show_attractor_pairs() const;
     void show_stable_attractor_fields() const;
-
     void show_directed_edges() const;
     void show_coupled_signals_kind() const;
     void show_description() const;
@@ -90,10 +101,15 @@ public:
         int n_input_variables,
         int n_output_variables,
         int n_max_of_clauses = 2,
-        int n_max_of_literals = 3);
+        int n_max_of_literals = 3,
+        int n_edges = -1,
+        std::shared_ptr<CouplingStrategy> coupling_strategy = std::make_shared<OrCoupling>());
 
     void _assign_global_indices_to_attractors();
     std::vector<std::string> _generate_local_scenes(std::shared_ptr<LocalNetwork> o_local_network);
+
+    static std::vector<std::shared_ptr<DirectedEdge>> find_output_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges);
+    static std::vector<std::shared_ptr<DirectedEdge>> find_input_edges_by_network_index(int index, const std::vector<std::shared_ptr<DirectedEdge>>& edges);
 };
 
 } // namespace cbnetwork
