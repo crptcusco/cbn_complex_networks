@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <filesystem>
+#include <cmath>
 
 namespace cbnetwork {
 
@@ -71,37 +72,12 @@ void CampaignManager::export_experiment_data(const std::string& base_path,
     // 2. [id]_dynamics.json
     json j_dynamics;
 
-    // Local Attractors
-    json j_local_attractors = json::array();
-    for (const auto& net : cbn->l_local_networks) {
-        json j_net_attractors;
-        j_net_attractors["network_index"] = net->index;
-        json j_attrs = json::array();
-        for (const auto& scene : net->local_scenes) {
-            for (const auto& attr : scene->l_attractors) {
-                json j_attr;
-                j_attr["global_index"] = attr->g_index;
-                j_attr["local_index"] = attr->l_index;
-                j_attr["scene_index"] = scene->index;
-
-                json j_states = json::array();
-                for (const auto& state : attr->l_states) {
-                    j_states.push_back(state->l_variable_values);
-                }
-                j_attr["states"] = j_states;
-                j_attrs.push_back(j_attr);
-            }
-        }
-        j_net_attractors["attractors"] = j_attrs;
-        j_local_attractors.push_back(j_net_attractors);
-    }
-    j_dynamics["local_attractors"] = j_local_attractors;
-
     // Compatible Pairs (from edges)
     json j_edges_pairs = json::array();
     for (const auto& edge : cbn->l_directed_edges) {
         json j_edge;
         j_edge["edge_index"] = edge->index;
+        j_edge["signal_var"] = edge->index_variable;
         json j_vals = json::array();
         for (int val : {0, 1}) {
             json j_val_pairs;
@@ -113,6 +89,79 @@ void CampaignManager::export_experiment_data(const std::string& base_path,
         j_edges_pairs.push_back(j_edge);
     }
     j_dynamics["compatible_pairs_by_edge"] = j_edges_pairs;
+
+    // HIARARCHICAL STRUCTURE: global_scenes
+    json j_global_scenes = json::array();
+
+    int num_global_edges = cbn->l_directed_edges.size();
+    if (num_global_edges > 0 && num_global_edges <= 20) {
+        long long total_scenes = 1LL << num_global_edges;
+
+        for (long long i = 0; i < total_scenes; ++i) {
+            json j_scene;
+            j_scene["global_scene_index"] = i + 1;
+
+            std::vector<int> edge_states;
+            std::map<int, int> edge_val_map; // edge_index -> state
+            for (int j = 0; j < num_global_edges; ++j) {
+                int state = (i >> j) & 1;
+                edge_states.push_back(state);
+                edge_val_map[cbn->l_directed_edges[j]->index] = state;
+            }
+            j_scene["global_edges_state"] = edge_states;
+
+            json j_local_attractors_by_module = json::array();
+
+            for (const auto& net : cbn->l_local_networks) {
+                json j_module;
+                j_module["module_id"] = net->index;
+                json j_attrs = json::array();
+
+                // Find attractors compatible with this global scene
+                for (const auto& scene : net->local_scenes) {
+                    bool match = true;
+                    for (size_t k = 0; k < scene->l_index_signals.size(); ++k) {
+                        int signal_var = scene->l_index_signals[k];
+                        int expected_val = scene->l_values[0][k] - '0';
+
+                        // Find which edge corresponds to this signal_var
+                        bool found_edge = false;
+                        for (const auto& edge : cbn->l_directed_edges) {
+                            if (edge->index_variable == signal_var) {
+                                if (edge_val_map[edge->index] != expected_val) {
+                                    match = false;
+                                }
+                                found_edge = true;
+                                break;
+                            }
+                        }
+                        if (!match) break;
+                    }
+
+                    if (match) {
+                        for (const auto& attr : scene->l_attractors) {
+                            json j_attr;
+                            j_attr["global_index"] = attr->g_index;
+                            j_attr["local_index"] = attr->l_index;
+                            j_attr["scene_index"] = scene->index;
+
+                            json j_states = json::array();
+                            for (const auto& state : attr->l_states) {
+                                j_states.push_back(state->l_variable_values);
+                            }
+                            j_attr["states"] = j_states;
+                            j_attrs.push_back(j_attr);
+                        }
+                    }
+                }
+                j_module["attractors"] = j_attrs;
+                j_local_attractors_by_module.push_back(j_module);
+            }
+            j_scene["local_attractors_by_module"] = j_local_attractors_by_module;
+            j_global_scenes.push_back(j_scene);
+        }
+    }
+    j_dynamics["global_scenes"] = j_global_scenes;
 
     // Global Attractor Fields
     json j_fields = json::array();
