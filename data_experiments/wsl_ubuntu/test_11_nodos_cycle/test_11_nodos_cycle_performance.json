@@ -1,0 +1,14 @@
+{
+    "canalization_density": 0.2,
+    "counts": {
+        "global_fields": 1,
+        "local_attractors": 44
+    },
+    "execution_time_ms": {
+        "phase1_local": 4.279925,
+        "phase2_pairs": 0.037201,
+        "phase3_fields": 1.870155,
+        "total": 6.188281
+    },
+    "memory_usage_kb": 5120
+}

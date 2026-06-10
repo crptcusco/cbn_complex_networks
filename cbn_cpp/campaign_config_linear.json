@@ -1,0 +1,48 @@
+{
+    "experiments": [
+        {
+            "id": "linear_OR",
+            "topology_type": 4,
+            "n_local_networks": 5,
+            "n_vars_network": 3,
+            "n_input_variables": 2,
+            "n_output_variables": 1,
+            "n_max_of_clauses": 4,
+            "n_max_of_literals": 3,
+            "coupling_type": "OR"
+        },
+        {
+            "id": "linear_AND",
+            "topology_type": 4,
+            "n_local_networks": 5,
+            "n_vars_network": 3,
+            "n_input_variables": 2,
+            "n_output_variables": 1,
+            "n_max_of_clauses": 4,
+            "n_max_of_literals": 3,
+            "coupling_type": "AND"
+        },
+        {
+            "id": "linear_XOR",
+            "topology_type": 4,
+            "n_local_networks": 5,
+            "n_vars_network": 3,
+            "n_input_variables": 2,
+            "n_output_variables": 1,
+            "n_max_of_clauses": 4,
+            "n_max_of_literals": 3,
+            "coupling_type": "XOR"
+        },
+        {
+            "id": "linear_NOT",
+            "topology_type": 4,
+            "n_local_networks": 5,
+            "n_vars_network": 3,
+            "n_input_variables": 2,
+            "n_output_variables": 1,
+            "n_max_of_clauses": 4,
+            "n_max_of_literals": 3,
+            "coupling_type": "NOT"
+        }
+    ]
+}

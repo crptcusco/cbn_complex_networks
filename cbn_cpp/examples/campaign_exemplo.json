@@ -1,0 +1,13 @@
+{
+    "experiments": [
+        {
+            "id": "test_11_nodos_dorogovtsev_mendes",
+            "topology_type": 7,
+            "n_local_networks": 11,
+            "n_vars_network": 4,
+            "n_input_variables": 2,
+            "n_output_variables": 1,
+            "coupling_type": "OR"
+        }
+    ]
+}

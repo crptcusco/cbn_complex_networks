@@ -1,0 +1,4 @@
+sample_id,strategy,topology,n_networks,n_vars,p1_ms,p2_ms,p3_ms,max_rss_kb,fields
+1,AdvancedParallel,1,6,10,47680.6,4.08442,515.147,163064,1
+2,AdvancedParallel,1,6,10,52241.2,7.21256,1102.29,269644,1
+3,AdvancedParallel,1,6,10,52954.7,0.494298,0.0105,269644,0

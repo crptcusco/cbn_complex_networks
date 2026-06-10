@@ -13,9 +13,6 @@ file(GLOB SOURCES "src/*.cpp")
 add_library(cbn_core ${SOURCES})
 target_link_libraries(cbn_core PUBLIC OpenMP::OpenMP_CXX)
 
-add_executable(verify_cbn examples/verify_cbn.cpp)
-target_link_libraries(verify_cbn cbn_core OpenMP::OpenMP_CXX)
-
 add_executable(run_pipeline examples/run_pipeline.cpp)
 target_link_libraries(run_pipeline cbn_core OpenMP::OpenMP_CXX)
 
