@@ -155,43 +155,10 @@ ExperimentResults SimpleParallelExperiment::run(std::shared_ptr<CBN> cbn) {
     }
 
     if (!fields.empty()) {
-        bool global_merged = true;
-        while (global_merged) {
-            global_merged = false;
-            for (size_t i = 0; i < fields.size(); ++i) {
-                if (fields.at(i).empty()) continue;
-                #pragma omp parallel for schedule(dynamic) shared(global_merged)
-                for (int j = i + 1; j < (int)fields.size(); ++j) {
-                    if (global_merged || fields.at(j).empty()) continue;
-
-                    auto& f1 = fields.at(i);
-                    auto& f2 = fields.at(j);
-                    bool share = false;
-                    size_t p1 = 0, p2 = 0;
-                    while (p1 < f1.size() && p2 < f2.size()) {
-                        if (f1[p1] == f2[p2]) { share = true; break; }
-                        if (f1[p1] < f2[p2]) p1++; else p2++;
-                    }
-
-                    if (share) {
-                        #pragma omp critical
-                        {
-                            if (!global_merged && !fields.at(j).empty()) {
-                                f1.insert(f1.end(), f2.begin(), f2.end());
-                                std::sort(f1.begin(), f1.end());
-                                f1.erase(std::unique(f1.begin(), f1.end()), f1.end());
-                                f2.clear();
-                                global_merged = true;
-                            }
-                        }
-                    }
-                }
-                if (global_merged) break;
-            }
-        }
+        auto final_fields = merge_field_lists_sequentially(fields);
         cbn->d_attractor_fields.clear();
         int count = 1;
-        for (auto& f : fields) if (!f.empty()) cbn->d_attractor_fields[count++] = f;
+        for (auto& f : final_fields) cbn->d_attractor_fields[count++] = f;
     }
     auto end3 = high_resolution_clock::now();
     res.p3_ms = duration<double, std::milli>(end3 - start3).count();
@@ -287,15 +254,20 @@ ExperimentResults AdvancedParallelExperiment::run(std::shared_ptr<CBN> cbn) {
 
     std::function<std::vector<std::vector<int>>(std::vector<std::vector<int>>)> async_reduce;
     async_reduce = [&](std::vector<std::vector<int>> f_list) -> std::vector<std::vector<int>> {
-        if (f_list.size() <= 20) return merge_field_lists_sequentially(f_list);
+        if (f_list.size() <= 100) return merge_field_lists_sequentially(f_list);
         size_t mid = f_list.size() / 2;
-        auto left_f = std::async(std::launch::async, async_reduce, std::vector<std::vector<int>>(f_list.begin(), f_list.begin()+mid));
-        auto right_res = async_reduce(std::vector<std::vector<int>>(f_list.begin()+mid, f_list.end()));
+        std::vector<std::vector<int>> left_chunk(f_list.begin(), f_list.begin() + mid);
+        std::vector<std::vector<int>> right_chunk(f_list.begin() + mid, f_list.end());
+
+        auto left_f = std::async(std::launch::async, [&async_reduce, left_chunk]() {
+            return async_reduce(left_chunk);
+        });
+        auto right_res = async_reduce(right_chunk);
         auto left_res = left_f.get();
-        // Merge chunks
-        std::vector<std::vector<int>> combined = left_res;
-        combined.insert(combined.end(), right_res.begin(), right_res.end());
-        return merge_field_lists_sequentially(combined);
+
+        std::vector<std::vector<int>> combined = std::move(left_res);
+        combined.insert(combined.end(), std::make_move_iterator(right_res.begin()), std::make_move_iterator(right_res.end()));
+        return merge_field_lists_sequentially(std::move(combined));
     };
 
     if(!initial_fields.empty()) {

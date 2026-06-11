@@ -741,6 +741,68 @@ void CBN::save_attractor_fields_to_json(const std::string& filepath) {
     out << j_fields.dump(4) << std::endl;
 }
 
+void CBN::clear_dynamics() {
+    d_local_attractors.clear();
+    d_local_attractors_ptr.clear();
+    d_attractor_fields.clear();
+    l_global_scenes.clear();
+    d_global_scenes_count.clear();
+
+    for (auto& net : l_local_networks) {
+        if (net) {
+            net->local_scenes.clear();
+            net->attractor_count = 0;
+        }
+    }
+
+    for (auto& edge : l_directed_edges) {
+        if (edge) {
+            edge->d_out_value_to_attractor[0].clear();
+            edge->d_out_value_to_attractor[1].clear();
+            edge->d_comp_pairs_attractors_by_value[0].clear();
+            edge->d_comp_pairs_attractors_by_value[1].clear();
+            edge->kind_signal = 0;
+        }
+    }
+}
+
+std::shared_ptr<CBN> CBN::clone() const {
+    std::vector<std::shared_ptr<LocalNetwork>> cloned_networks;
+    std::map<int, std::shared_ptr<LocalNetwork>> net_map;
+    for (const auto& net : l_local_networks) {
+        auto cloned_net = std::make_shared<LocalNetwork>(net->index, net->internal_variables);
+        // Copy InternalVariable pointers (logic is immutable)
+        cloned_net->descriptive_function_variables = net->descriptive_function_variables;
+        cloned_networks.push_back(cloned_net);
+        net_map[cloned_net->index] = cloned_net;
+    }
+
+    std::vector<std::shared_ptr<DirectedEdge>> cloned_edges;
+    for (const auto& edge : l_directed_edges) {
+        auto cloned_edge = std::make_shared<DirectedEdge>(
+            edge->index, edge->index_variable, edge->input_local_network,
+            edge->output_local_network, edge->l_output_variables, edge->coupling_function
+        );
+        cloned_edge->true_table = edge->true_table; // Deep copy map
+        cloned_edges.push_back(cloned_edge);
+    }
+
+    auto cloned_cbn = std::make_shared<CBN>(cloned_networks, cloned_edges);
+    cloned_cbn->o_global_topology = o_global_topology; // Shared immutable topology
+
+    // Re-link input/output signals
+    for (auto& net : cloned_cbn->l_local_networks) {
+        std::vector<std::shared_ptr<DirectedEdge>> inputs;
+        for (auto& edge : cloned_cbn->l_directed_edges) {
+            if (edge->input_local_network == net->index) inputs.push_back(edge);
+        }
+        net->process_input_signals(inputs);
+    }
+    cloned_cbn->process_output_signals();
+
+    return cloned_cbn;
+}
+
 void CBN::save_network_to_json(const std::string& filepath) const {
     using json = nlohmann::json;
     json j_cbn;
