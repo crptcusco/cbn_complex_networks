@@ -8,9 +8,11 @@
 #include <stdexcept>
 #include "cbnetwork/cbnetwork.hpp"
 #include "cbnetwork/experiment_strategies.hpp"
+#include "nlohmann/json.hpp"
 
 using namespace cbnetwork;
 namespace fs = std::filesystem;
+using json = nlohmann::json;
 
 /**
  * Logs metrics to a global CSV file.
