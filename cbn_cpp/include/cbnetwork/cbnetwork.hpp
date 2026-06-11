@@ -99,6 +99,7 @@ public:
 
     void save_attractor_fields_to_json(const std::string& filepath);
     void save_network_to_json(const std::string& filepath) const;
+    void clear_dynamics();
     double calculate_canalization_density() const;
 
     static std::shared_ptr<CBN> cbn_generator(

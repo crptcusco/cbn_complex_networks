@@ -741,6 +741,31 @@ void CBN::save_attractor_fields_to_json(const std::string& filepath) {
     out << j_fields.dump(4) << std::endl;
 }
 
+void CBN::clear_dynamics() {
+    d_local_attractors.clear();
+    d_local_attractors_ptr.clear();
+    d_attractor_fields.clear();
+    l_global_scenes.clear();
+    d_global_scenes_count.clear();
+
+    for (auto& net : l_local_networks) {
+        if (net) {
+            net->local_scenes.clear();
+            net->attractor_count = 0;
+        }
+    }
+
+    for (auto& edge : l_directed_edges) {
+        if (edge) {
+            edge->d_out_value_to_attractor[0].clear();
+            edge->d_out_value_to_attractor[1].clear();
+            edge->d_comp_pairs_attractors_by_value[0].clear();
+            edge->d_comp_pairs_attractors_by_value[1].clear();
+            edge->kind_signal = 0;
+        }
+    }
+}
+
 void CBN::save_network_to_json(const std::string& filepath) const {
     using json = nlohmann::json;
     json j_cbn;
