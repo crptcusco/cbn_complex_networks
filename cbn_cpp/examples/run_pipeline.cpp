@@ -5,25 +5,42 @@
 #include <memory>
 #include <string>
 #include <map>
+#include <filesystem>
 #include "nlohmann/json.hpp"
 #include "cbnetwork/cbnetwork.hpp"
 #include "cbnetwork/localnetwork.hpp"
 #include "cbnetwork/directededge.hpp"
 #include "cbnetwork/internalvariable.hpp"
+#include "cbnetwork/path_utils.hpp"
 
 using json = nlohmann::json;
 using namespace cbnetwork;
 using namespace std::chrono;
+namespace fs = std::filesystem;
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <network_config.json>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <network_config.json> [--topology <id>] [--networks <n>] [--vars <n>] [--samples <n>]" << std::endl;
         return 1;
     }
 
-    std::ifstream i(argv[1]);
+    std::string config_file = argv[1];
+    int topology = 0;
+    int n_networks = 0;
+    int n_vars = 0;
+    int n_samples = 1;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--topology" && i + 1 < argc) topology = std::stoi(argv[++i]);
+        else if (arg == "--networks" && i + 1 < argc) n_networks = std::stoi(argv[++i]);
+        else if (arg == "--vars" && i + 1 < argc) n_vars = std::stoi(argv[++i]);
+        else if (arg == "--samples" && i + 1 < argc) n_samples = std::stoi(argv[++i]);
+    }
+
+    std::ifstream i(config_file);
     if (!i.is_open()) {
-        std::cerr << "Could not open file: " << argv[1] << std::endl;
+        std::cerr << "Could not open file: " << config_file << std::endl;
         return 1;
     }
 
@@ -49,7 +66,8 @@ int main(int argc, char** argv) {
         std::vector<int> internal_vars = net_j["internal_variables"].get<std::vector<int>>();
         auto net = std::make_shared<LocalNetwork>(idx, internal_vars);
 
-        for (auto& var_j : net_j["descriptive_function_variables"]) {
+        std::string logic_key = net_j.contains("descriptive_function_variables") ? "descriptive_function_variables" : "logic";
+        for (auto& var_j : net_j[logic_key]) {
             int v_idx = var_j["index"];
             std::vector<std::vector<int>> cnf = var_j["cnf"].get<std::vector<std::vector<int>>>();
             auto var = std::make_shared<InternalVariable>(v_idx, cnf);
@@ -59,16 +77,22 @@ int main(int argc, char** argv) {
         net_map[idx] = net;
     }
 
+    // Update info if not provided but in JSON (best effort)
+    if (n_networks == 0) n_networks = networks.size();
+    if (n_vars == 0 && !networks.empty()) n_vars = networks[0]->internal_variables.size();
+
     std::vector<std::shared_ptr<DirectedEdge>> edges;
     // Load Directed Edges
     if (j.contains("directed_edges")) {
         for (auto& edge_j : j["directed_edges"]) {
             int idx = edge_j["index"];
-            int idx_var = edge_j["index_variable"];
-            int in_net = edge_j["input_local_network"];
-            int out_net = edge_j["output_local_network"];
-            std::vector<int> out_vars = edge_j["output_variables"].get<std::vector<int>>();
-            std::string coup_func = edge_j["coupling_function"];
+
+            // Handle both naming conventions
+            int idx_var = edge_j.contains("index_variable") ? edge_j["index_variable"].get<int>() : edge_j["signal_var"].get<int>();
+            int in_net = edge_j.contains("input_local_network") ? edge_j["input_local_network"].get<int>() : edge_j["target"].get<int>();
+            int out_net = edge_j.contains("output_local_network") ? edge_j["output_local_network"].get<int>() : edge_j["source"].get<int>();
+            std::vector<int> out_vars = edge_j.contains("output_variables") ? edge_j["output_variables"].get<std::vector<int>>() : edge_j["output_vars"].get<std::vector<int>>();
+            std::string coup_func = edge_j.contains("coupling_function") ? edge_j["coupling_function"].get<std::string>() : edge_j["function"].get<std::string>();
 
             auto edge = std::make_shared<DirectedEdge>(idx, idx_var, in_net, out_net, out_vars, coup_func);
 
@@ -143,6 +167,21 @@ int main(int argc, char** argv) {
         total_pairs += edge->d_comp_pairs_attractors_by_value[1].size();
     }
     res["metrics"]["compatible_pairs_count"] = total_pairs;
+
+    // Handle dynamic output directory
+    if (topology > 0 || n_networks > 0 || n_vars > 0) {
+        std::string output_dir = create_output_directory(topology, n_networks, n_vars, n_samples);
+        std::string base_name = fs::path(config_file).stem().string();
+
+        std::string metrics_file = output_dir + "/" + base_name + "_metrics.json";
+        std::ofstream o_metrics(metrics_file);
+        o_metrics << res.dump(4) << std::endl;
+
+        std::string struct_file = output_dir + "/" + base_name + "_structure.json";
+        cbn.save_network_to_json(struct_file);
+
+        std::cout << "Results saved to: " << output_dir << std::endl;
+    }
 
     std::cout << res.dump(4) << std::endl;
 
