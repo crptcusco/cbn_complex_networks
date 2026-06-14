@@ -30,3 +30,6 @@ out/
 # Si generas archivos de configuración locales que no quieres subir al repo:
 *.config
 *.local
+
+# --- Datos de Experimentos Doctoral ---
+phd_experiments/

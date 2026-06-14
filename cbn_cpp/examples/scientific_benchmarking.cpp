@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include "cbnetwork/cbnetwork.hpp"
 #include "cbnetwork/experiment_strategies.hpp"
+#include "cbnetwork/path_utils.hpp"
 #include "nlohmann/json.hpp"
 
 using namespace cbnetwork;
@@ -40,12 +41,18 @@ void log_to_csv(const std::string& filename, const ExperimentResults& res, int s
 }
 
 /**
- * Persists sample data (fields and topology) to specific files.
+ * Persists sample data (fields, topology, and structure) to specific files.
  */
 void persist_sample(int sample_id, std::shared_ptr<CBN> cbn, const ExperimentResults& res, const std::string& output_dir) {
     fs::create_directories(output_dir);
 
-    // Persist Fields JSON: cbn_sample_{ID}_{STRATEGIA}_fields.json
+    // 1. Persist Structure JSON: cbn_sample_{ID}_structure.json
+    std::string struct_file = output_dir + "/cbn_sample_" + std::to_string(sample_id) + "_structure.json";
+    if (!fs::exists(struct_file)) {
+        cbn->save_network_to_json(struct_file);
+    }
+
+    // 2. Persist Fields JSON: cbn_sample_{ID}_{STRATEGIA}_fields.json
     std::string fields_file = output_dir + "/cbn_sample_" + std::to_string(sample_id) + "_" + res.strategy_name + "_fields.json";
     std::ofstream f_out(fields_file);
     if (f_out.is_open()) {
@@ -72,7 +79,7 @@ void persist_sample(int sample_id, std::shared_ptr<CBN> cbn, const ExperimentRes
         std::cerr << "[Error] Could not write to " << fields_file << std::endl;
     }
 
-    // Persist Topology CSV: cbn_sample_{ID}_{STRATEGIA}_topology.csv
+    // 3. Persist Topology CSV: cbn_sample_{ID}_{STRATEGIA}_topology.csv
     std::string topo_file = output_dir + "/cbn_sample_" + std::to_string(sample_id) + "_" + res.strategy_name + "_topology.csv";
     std::ofstream t_out(topo_file);
     if (t_out.is_open()) {
@@ -92,8 +99,8 @@ int main(int argc, char** argv) {
     int n_networks = 6;
     int n_vars = 10;
     int topology = 1;
-    std::string output_file = "benchmark_results.csv";
-    std::string output_dir = "phd_experiments/output_data";
+    std::string output_file = ""; // Will be determined dynamically
+    std::string output_dir = "";  // Will be determined dynamically
 
     // CLI Parsing
     for (int i = 1; i < argc; ++i) {
@@ -108,6 +115,23 @@ int main(int argc, char** argv) {
         } catch (const std::exception& e) {
             std::cerr << "[Error] Parsing argument " << arg << ": " << e.what() << std::endl;
             return 1;
+        }
+    }
+
+    // Dynamic output directory creation
+    if (output_dir.empty()) {
+        output_dir = create_output_directory(topology, n_networks, n_vars, n_samples);
+    } else {
+        fs::create_directories(output_dir);
+    }
+
+    // Dynamic output file setting
+    if (output_file.empty()) {
+        output_file = (fs::path(output_dir) / "benchmark_results.csv").string();
+    } else {
+        fs::path p_out(output_file);
+        if (p_out.is_relative()) {
+            output_file = (fs::path(output_dir) / p_out).string();
         }
     }
 
@@ -138,10 +162,7 @@ int main(int argc, char** argv) {
 
         for (auto& s_info : strategies) {
             try {
-                // Generate a fresh CBN for each strategy to ensure fair comparison
-                // and to avoid side-effects from previous runs (like cached attractors).
                 auto cbn = CBN::cbn_generator(topology, n_networks, n_vars, 1, 1);
-
                 if (!cbn) {
                     throw std::runtime_error("CBN Generator returned null for sample " + std::to_string(sample_id));
                 }
@@ -158,7 +179,6 @@ int main(int argc, char** argv) {
 
             } catch (const std::exception& e) {
                 std::cerr << "  [!] Error in Sample " << sample_id << " (" << s_info.name << "): " << e.what() << std::endl;
-                // We continue with the next strategy/sample
             } catch (...) {
                 std::cerr << "  [!] Unknown error in Sample " << sample_id << " (" << s_info.name << ")" << std::endl;
             }
